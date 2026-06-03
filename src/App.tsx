@@ -25,7 +25,8 @@ import { WaveformVisualizer } from './components/WaveformVisualizer';
 import { SquareFeed } from './components/SquareFeed';
 import { gameAudio } from './utils/audioSynth';
 import { drawWatermelonToCanvas, getWatermelonImageURL, getSlicedWatermelonImageURL } from './utils/watermelonDrawer';
-import { filterSensitiveWords, FILTER_RULES } from './utils/filter';
+import { MODERATION_POLICY } from './utils/moderationPolicy';
+import { useModeration, checkContent } from './utils/moderationApi';
 
 // Seed community data
 const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
@@ -137,6 +138,10 @@ export default function App() {
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
   const [daysRemaining, setDaysRemaining] = useState<number>(10);
   const [showRules, setShowRules] = useState<boolean>(false);
+
+  // AI moderation hook (at component top-level for React rules of hooks)
+  const previewText = `${customMelonName} ${customComment}`.trim();
+  const previewModeration = useModeration(previewText, 600);
 
   // Countdown timer for posting cooldown
   useEffect(() => {
@@ -646,21 +651,41 @@ export default function App() {
   };
 
   // --- Form submission to share the tested melon ---
-  const handlePublishMelon = (e: React.FormEvent) => {
+  const handlePublishMelon = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Antispam mechanism check
     if (cooldownRemaining > 0) {
       alert(`❄️ 吃瓜提示：好瓜值得等待，心急吃不热带沙瓤！您正处于「夏日冰箱冷却降温期」，请在 ${cooldownRemaining} 秒后再发布瓜贴哦！默念：平心静气。`);
       return;
     }
 
-    // Apply sensitive content filtering & replacement inside form submission
-    const filteredNameResult = filterSensitiveWords(customMelonName);
-    const filteredCommentResult = filterSensitiveWords(customComment);
-    
+    // Build final text for moderation
+    const finalName = customMelonName.trim() || '匿名的脆甜西瓜';
+    const finalComment = customComment.trim() || '敲着很好声，夏天吃西瓜太绝啦！';
+    const combinedText = `${finalName} ${finalComment}`;
+
+    // Call DeepSeek AI moderation (non-debounced, direct call)
+    const modResult = await checkContent(combinedText);
+
+    if (modResult.flagged) {
+      const categoryNames = modResult.categories
+        .map(c => MODERATION_POLICY.find(p => p.id === c)?.category || c)
+        .join('、');
+      const suggestionText = modResult.suggestion
+        ? `\n\n💡 AI 建议：${modResult.suggestion}`
+        : '';
+      const confirmed = window.confirm(
+        `⚠️ AI 内容审核提示\n\n` +
+        `您的内容触发了以下规则：${categoryNames}\n` +
+        `我们建议您修改后重新发布。${suggestionText}\n\n` +
+        `点击"确定"仍要发布（内容将原样展示），"取消"返回修改。`
+      );
+      if (!confirmed) return;
+    }
+
     // Fallback Image generation based on testStatus if webcam wasn't captured
-    const finalPhoto = capturedPhotoUrl || getWatermelonImageURL(testResultStatus, filteredNameResult.cleanText);
+    const finalPhoto = capturedPhotoUrl || getWatermelonImageURL(testResultStatus, finalName);
 
     // Map ripeness to mood status dynamically
     let customMood = '❤️ 元气脆甜心情';
@@ -669,7 +694,7 @@ export default function App() {
 
     const newRecord: WatermelonRecord = {
       id: 'melon-' + Date.now(),
-      name: filteredNameResult.cleanText.trim() || '匿名的脆甜西瓜',
+      name: finalName,
       soundScore: testResultStatus === 'ripe' ? 95 : testResultStatus === 'unripe' ? 25 : 75,
       lookScore: testResultStatus === 'ripe' ? 92 : testResultStatus === 'unripe' ? 35 : 65,
       overallScore: calculatedScore,
@@ -678,7 +703,7 @@ export default function App() {
       greenness: testResultStatus === 'ripe' ? 0.8 : testResultStatus === 'unripe' ? 0.5 : 0.6,
       ripenessStatus: testResultStatus,
       ratedStars: customStars,
-      message: filteredCommentResult.cleanText.trim() || '敲着很好声，夏天吃西瓜太绝啦！',
+      message: finalComment,
       timestamp: Date.now(),
       photoUrl: finalPhoto,
       likes: 0,
@@ -696,11 +721,6 @@ export default function App() {
 
     // Cute success celebrations
     gameAudio.playSuccess();
-    
-    // If words were filtered, show a warm, cute alert reminder!
-    if (filteredNameResult.hasSensitive || filteredCommentResult.hasSensitive) {
-      alert('🌟 提示：吃瓜需要平心静气降火！由于您的文字中含有极端暴躁、吐槽或燥热词汇，系统已自动转换为可可爱爱的夏日水果和雪糕甜点。好心态，吃瓜甜！');
-    }
 
     // Redirect view to feed
     setActiveSegment('community');
@@ -1455,7 +1475,7 @@ export default function App() {
                         )}
                       </div>
 
-                      {/* Prominent Sensitive Word Filters Rule Board and Real-time Purified Preview */}
+                      {/* AI-Powered Content Moderation Rule Board and Real-time Preview */}
                       <div className="bg-emerald-50/80 border-2 border-emerald-950 p-4 rounded-2xl space-y-3 shadow-[2px_2px_0px_0px_#064e3b]">
                         <div
                           className="flex items-center justify-between gap-2 border-b-2 border-dashed border-emerald-950/10 pb-2 cursor-pointer select-none"
@@ -1463,7 +1483,7 @@ export default function App() {
                         >
                           <div className="flex items-center gap-2">
                             <span className="text-base">🛡️</span>
-                            <span className="text-xs font-black text-emerald-950">绿色吃瓜广场情绪行为准则明牌公示</span>
+                            <span className="text-xs font-black text-emerald-950">绿色吃瓜广场 AI 内容审核准则</span>
                           </div>
                           <span className={`text-xs transition-transform duration-200 ${showRules ? 'rotate-90' : ''}`}>
                             ▶
@@ -1473,22 +1493,22 @@ export default function App() {
                         {showRules && (
                           <>
                             <p className="text-[10.5px] leading-relaxed text-emerald-900">
-                              吃瓜本是一场欢声笑语的夏日分享。为了<strong>避免过度情绪化、负极端的辱骂吐槽破坏和谐氛围</strong>，本广场对极端不文明词汇、狂躁暴躁宣泄设置了<strong>【夏日冰镇重组机制】</strong>：
+                              吃瓜本是一场欢声笑语的夏日分享。为了<strong>避免过度情绪化、负极端的辱骂吐槽破坏和谐氛围</strong>，本广场接入了 <strong>DeepSeek AI 智能审核</strong>，对以下三类内容进行实时检测和建议：
                             </p>
 
-                            {/* Rules columns list explicitly */}
+                            {/* Policy columns */}
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-                              {FILTER_RULES.map((rule) => (
-                                <div key={rule.id} className="bg-white border-2 border-emerald-950/20 p-2.5 rounded-xl flex flex-col justify-between">
+                              {MODERATION_POLICY.map((policy) => (
+                                <div key={policy.id} className="bg-white border-2 border-emerald-950/20 p-2.5 rounded-xl flex flex-col justify-between">
                                   <p className="text-[10.5px] font-black text-emerald-950 leading-tight">
-                                    {rule.category}
+                                    {policy.icon} {policy.category}
                                   </p>
-                                  <p className="text-[9.5px] text-gray-500 font-bold mt-1.5 leading-normal line-clamp-2">
-                                    示例: {rule.words.slice(0, 5).join('、')}等
+                                  <p className="text-[9px] text-gray-600 font-bold mt-1.5 leading-normal">
+                                    {policy.desc}
                                   </p>
-                                  <div className="mt-2 bg-[#FFFDF0] border border-amber-300 p-1 rounded-lg text-center">
-                                    <p className="text-[8.5px] text-amber-900 font-bold">已自动净化替换为：</p>
-                                    <p className="text-[10px] font-black text-rose-600 truncate mt-0.5">{rule.replacement}</p>
+                                  <div className="mt-2 bg-blue-50 border border-blue-200 p-1.5 rounded-lg">
+                                    <p className="text-[8.5px] text-blue-800 font-bold">📋 规则范围：</p>
+                                    <p className="text-[9px] font-bold text-blue-900 mt-0.5 leading-tight">{policy.examples}</p>
                                   </div>
                                 </div>
                               ))}
@@ -1496,53 +1516,64 @@ export default function App() {
                           </>
                         )}
 
-                        {/* Real-time filtered text preview */}
-                        {(customComment.trim() || customMelonName.trim()) && (() => {
-                          const nameFilter = filterSensitiveWords(customMelonName);
-                          const commentFilter = filterSensitiveWords(customComment);
-                          const hasAnyTriggered = nameFilter.hasSensitive || commentFilter.hasSensitive;
-                          const allTriggeredWords = [...new Set([...nameFilter.detectedWords, ...commentFilter.detectedWords])];
-
-                          return (
+                        {/* Real-time AI moderation preview */}
+                        {(customComment.trim() || customMelonName.trim()) && (
                             <div className={`p-3 rounded-xl border-2 transition-all duration-200 ${
-                              hasAnyTriggered 
-                                ? 'bg-[#FFFBEB] border-amber-500 shadow-[2px_2px_0px_0px_#b45309]' 
+                              previewModeration.flagged
+                                ? 'bg-[#FFFBEB] border-amber-500 shadow-[2px_2px_0px_0px_#b45309]'
+                                : previewModeration.loading
+                                ? 'bg-[#F8FAFC] border-gray-300'
                                 : 'bg-[#F0FDF4] border-emerald-500 shadow-[2px_2px_0px_0px_#047857]'
                             }`}>
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-[10.5px] font-black flex items-center gap-1.5 text-emerald-950">
-                                  {hasAnyTriggered ? '⚠️ 西瓜净化机制已识别到暴躁词汇:' : '✅ 实时发送预览 (内容绿色安全):'}
+                                  {previewModeration.loading
+                                    ? '🔄 AI 正在审核内容...'
+                                    : previewModeration.flagged
+                                    ? '⚠️ AI 检测到可能需要调整的内容：'
+                                    : '✅ AI 实时审核通过 (内容绿色安全)：'}
                                 </span>
-                                {hasAnyTriggered && (
+                                {previewModeration.flagged && (
                                   <span className="text-[9.5px] font-black text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full animate-pulse">
-                                    吃冰降躁! 🧊
+                                    建议优化 🧊
                                   </span>
+                                )}
+                                {previewModeration.error && !previewModeration.flagged && (
+                                  <span className="text-[9px] text-gray-400">(审核服务暂不可用，可直接发布)</span>
                                 )}
                               </div>
 
-                              {hasAnyTriggered && (
-                                <p className="text-[9.5px] font-extrabold text-[#9A3412] mt-1.5 bg-[#FFFBEB] border border-amber-200 p-1 rounded animate-fade-in">
-                                  检测到词频: {allTriggeredWords.map(w => `「${w}」`).join(' ')}
+                              {previewModeration.flagged && previewModeration.categories.length > 0 && (
+                                <p className="text-[9.5px] font-extrabold text-[#9A3412] mt-1.5 bg-[#FFFBEB] border border-amber-200 p-1 rounded">
+                                  触发类别：{previewModeration.categories.map(c => {
+                                    const policy = MODERATION_POLICY.find(p => p.id === c);
+                                    return policy ? `「${policy.icon} ${policy.category}」` : `「${c}」`;
+                                  }).join(' ')}
                                 </p>
+                              )}
+
+                              {previewModeration.flagged && previewModeration.suggestion && (
+                                <div className="mt-2 bg-white/70 border border-amber-300 p-2 rounded-lg">
+                                  <p className="text-[9.5px] font-bold text-amber-900">💡 AI 建议：{previewModeration.suggestion}</p>
+                                </div>
                               )}
 
                               <div className="mt-2.5 text-[11px] space-y-1.5 border-t border-dashed border-emerald-950/10 pt-2 font-sans">
                                 <div className="flex items-start gap-1">
                                   <span className="text-gray-400 font-bold shrink-0">🍉 瓜名:</span>
-                                  <span className={`font-black break-all ${nameFilter.hasSensitive ? 'text-amber-800 bg-amber-50 border border-amber-200 px-1 rounded font-bold' : 'text-emerald-950 font-bold'}`}>
-                                    {nameFilter.cleanText || '(空)'}
+                                  <span className="font-bold text-emerald-950 break-all">
+                                    {customMelonName || '(空)'}
                                   </span>
                                 </div>
                                 <div className="flex items-start gap-1">
                                   <span className="text-gray-400 font-bold shrink-0">💬 评语:</span>
-                                  <span className={`font-black break-all leading-relaxed ${commentFilter.hasSensitive ? 'text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold' : 'text-emerald-950 font-bold'}`}>
-                                    {commentFilter.cleanText || '(空)'}
+                                  <span className="font-bold text-emerald-950 break-all leading-relaxed">
+                                    {customComment || '(空)'}
                                   </span>
                                 </div>
                               </div>
                             </div>
-                          );
-                        })()}
+                        )}
                       </div>
 
                       <button
