@@ -1,0 +1,6 @@
+{
+  "name": "吃瓜大师",
+  "description": "夏日必备！通过麦克风检测拍西瓜声音、摄像头分析西瓜成色，判断其成熟度，并支持趣味给瓜打分与晒瓜广场分享。",
+  "requestFramePermissions": ["camera", "microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
