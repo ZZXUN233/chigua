@@ -20,14 +20,15 @@ import {
   Star
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { WatermelonRecord, WatermelonStatus } from './types';
+import { WatermelonRecord, WatermelonStatus, MarketIndex, CityStat } from './types';
 import { WaveformVisualizer } from './components/WaveformVisualizer';
 import { SquareFeed } from './components/SquareFeed';
+import { PriceChart } from './components/PriceChart';
 import { gameAudio } from './utils/audioSynth';
 import { drawWatermelonToCanvas, getWatermelonImageURL, getSlicedWatermelonImageURL } from './utils/watermelonDrawer';
 import { MODERATION_POLICY } from './utils/moderationPolicy';
 import { useModeration, checkContent } from './utils/moderationApi';
-import { detectWatermelon } from './utils/detectionApi';
+import { detectWatermelonFromCanvas } from './utils/watermelonDetector';
 import { convertToPixelArt } from './utils/pixelArtConverter';
 
 // Seed community data
@@ -48,7 +49,10 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
     photoUrl: '',
     likes: 238,
     location: '📍 北京·庞各庄的甜甜瓜田',
-    mood: '❤️ 元气脆甜心情'
+    mood: '❤️ 元气脆甜心情',
+    pricePerJin: 2.5,
+    isSelfSplit: true,
+    purchaseLocation: '庞各庄路边瓜摊'
   },
   {
     id: 'seed-2',
@@ -66,7 +70,10 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
     photoUrl: '',
     likes: 182,
     location: '📍 隔壁超市特价区·避坑现场',
-    mood: '🟢 青涩迷茫心境'
+    mood: '🟢 青涩迷茫心境',
+    pricePerJin: 1.8,
+    isSelfSplit: true,
+    purchaseLocation: '永辉超市特价区'
   },
   {
     id: 'seed-3',
@@ -84,7 +91,10 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
     photoUrl: '',
     likes: 165,
     location: '📍 新疆·哈密葡萄沙地的甜甜瓜田',
-    mood: '🧘 佛系看淡心境'
+    mood: '🧘 佛系看淡心境',
+    pricePerJin: 1.5,
+    isSelfSplit: false,
+    purchaseLocation: '美团外卖盲盒'
   }
 ];
 
@@ -99,6 +109,9 @@ export default function App() {
   const [useRealCamera, setUseRealCamera] = useState<boolean>(false);
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [isDetectingWatermelon, setIsDetectingWatermelon] = useState<boolean>(false);
+  // 5秒自动停止倒计时
+  const [micCountdown, setMicCountdown] = useState<number>(0);
+  const [camCountdown, setCamCountdown] = useState<number>(0);
 
   // Audio Context refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -134,12 +147,18 @@ export default function App() {
   const [customStars, setCustomStars] = useState<number>(5);
   const [customLocation, setCustomLocation] = useState<string>('📍 新疆哈密葡萄沙地');
   const [isFetchingLocation, setIsFetchingLocation] = useState<boolean>(false);
-  const [locationMethod, setLocationMethod] = useState<'automatic' | 'manual'>('manual');
+  // 华强买瓜：价格行情
+  const [customPrice, setCustomPrice] = useState<string>('');
+  const [isSelfSplit, setIsSelfSplit] = useState<boolean>(false);
+  const [purchaseLocation, setPurchaseLocation] = useState<string>('');
+  const [marketIndex, setMarketIndex] = useState<MarketIndex | null>(null);
+  const [showMarketPanel, setShowMarketPanel] = useState<boolean>(true);
 
   // Cooldown & Melon Client Passport states (Anti-Spam security)
   const [melonPassport, setMelonPassport] = useState<string>('');
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
-  const [daysRemaining, setDaysRemaining] = useState<number>(10);
+  const [nextResetTime, setNextResetTime] = useState<number>(0);
+  const [resetCountdown, setResetCountdown] = useState<string>('');
   const [showRules, setShowRules] = useState<boolean>(false);
 
   // AI moderation hook (at component top-level for React rules of hooks)
@@ -160,6 +179,38 @@ export default function App() {
     }, 1000);
     return () => clearInterval(interval);
   }, [cooldownRemaining]);
+
+  // 1-second tick for daily reset countdown
+  useEffect(() => {
+    if (nextResetTime <= 0) return;
+    const tick = () => {
+      const ms = nextResetTime - Date.now();
+      if (ms <= 0) {
+        setResetCountdown('00:00:00');
+        return;
+      }
+      const h = Math.floor(ms / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      const s = Math.floor((ms % 60000) / 1000);
+      setResetCountdown(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [nextResetTime]);
+
+  // 麦克风 5 秒自动停止
+  useEffect(() => {
+    if (!isListeningMic || micCountdown <= 0) return;
+    const id = setTimeout(() => {
+      if (micCountdown <= 1) {
+        stopMicrophone();
+      } else {
+        setMicCountdown(prev => prev - 1);
+      }
+    }, 1000);
+    return () => clearTimeout(id);
+  }, [isListeningMic, micCountdown]);
 
   const handleAutoGetLocation = () => {
     if (!navigator.geolocation) {
@@ -183,11 +234,15 @@ export default function App() {
             const geoData = await geoRes.json();
             const city = geoData.address?.city || geoData.address?.town || geoData.address?.county || geoData.address?.state || '';
             const province = geoData.address?.state || geoData.address?.province || '';
+            const cityName = city || province || '';
             const locationName = city
               ? `📍 ${province ? province.replace(/省|市$/, '') + '·' : ''}${city}的甜甜瓜田`
               : `📍 北纬${latitude.toFixed(1)}°附近的秘密瓜地`;
             setCustomLocation(locationName);
-            setLocationMethod('automatic');
+            // 华强买瓜：自动填入城市作为购买地
+            if (cityName && !purchaseLocation) {
+              setPurchaseLocation(cityName);
+            }
             setIsFetchingLocation(false);
             return;
           }
@@ -197,7 +252,6 @@ export default function App() {
         // Fallback: fuzzy coordinates
         const fuzzyLocStr = `📍 北纬${latitude.toFixed(1)}°附近的秘密瓜地`;
         setCustomLocation(fuzzyLocStr);
-        setLocationMethod('automatic');
         setIsFetchingLocation(false);
       },
       (error) => {
@@ -213,7 +267,6 @@ export default function App() {
         }
         alert(`💫 ${errorMsg} 已经帮你选了一个甜甜的夏日瓜地！`);
         setCustomLocation('📍 新疆哈密·葡萄沙地的甜甜瓜田');
-        setLocationMethod('manual');
       },
       { enableHighAccuracy: false, timeout: 6000 }
     );
@@ -308,6 +361,7 @@ export default function App() {
       }
     };
     syncFromServer();
+    fetchMarketIndex();
 
     // Calculate ms until next 1:00 AM for the auto-reset timer
     const next1AM = new Date();
@@ -315,9 +369,7 @@ export default function App() {
     next1AM.setHours(1, 0, 0, 0);
     const msUntilNext1AM = next1AM.getTime() - Date.now();
 
-    // Set leftover hours display
-    const hoursLeft = Math.max(1, Math.ceil(msUntilNext1AM / (1000 * 3600)));
-    setDaysRemaining(hoursLeft);
+    setNextResetTime(next1AM.getTime());
 
     const resetTimer = setTimeout(() => {
       // Re-fetch from server after reset; seed locally as fallback
@@ -329,13 +381,30 @@ export default function App() {
       localStorage.setItem('melon_masters_records', JSON.stringify(seeded));
       const newDateStr = getTodayStr();
       localStorage.setItem('melon_last_reset_date', newDateStr);
-      setDaysRemaining(24);
+      // Schedule next 1AM
+      const next = new Date();
+      next.setDate(next.getDate() + 1);
+      next.setHours(1, 0, 0, 0);
+      setNextResetTime(next.getTime());
       // Also try to sync from server
       syncFromServer();
     }, msUntilNext1AM);
 
     return () => clearTimeout(resetTimer);
   }, []);
+
+  // 华强买瓜：获取今日行情看板
+  const fetchMarketIndex = async () => {
+    try {
+      const res = await fetch('/chigua-api/market-index');
+      if (res.ok) {
+        const data = await res.json();
+        setMarketIndex(data);
+      }
+    } catch (err) {
+      console.warn('[Market] 行情获取失败:', err);
+    }
+  };
 
   // Sync state to local storage + server when changed
   const saveRecordsToStorage = (newRecords: WatermelonRecord[], newRecord?: WatermelonRecord) => {
@@ -366,6 +435,7 @@ export default function App() {
   const toggleMicrophone = async () => {
     if (isListeningMic) {
       // Turn off
+      setMicCountdown(0);
       stopMicrophone();
     } else {
       // Turn on
@@ -385,6 +455,7 @@ export default function App() {
 
         setIsListeningMic(true);
         setUseRealMic(true);
+        setMicCountdown(5);  // 5 秒后自动停止
         hasCapturedRef.current = false;
         gameAudio.playPop();
 
@@ -463,6 +534,7 @@ export default function App() {
   };
 
   const stopMicrophone = () => {
+    setMicCountdown(0);
     if (listenIntervalRef.current) {
       cancelAnimationFrame(listenIntervalRef.current);
       listenIntervalRef.current = null;
@@ -509,6 +581,7 @@ export default function App() {
   // --- Real Camera Stream Handlers ---
   const toggleCamera = async () => {
     if (isCameraActive) {
+      setCamCountdown(0);
       stopCamera();
     } else {
       try {
@@ -522,6 +595,7 @@ export default function App() {
         localStreamRef.current = stream;
         setIsCameraActive(true);
         setUseRealCamera(true);
+        setCamCountdown(5);  // 5 秒后自动停止
         setCapturedPhotoUrl('');
         gameAudio.playPop();
       } catch (err) {
@@ -533,6 +607,7 @@ export default function App() {
   };
 
   const stopCamera = () => {
+    setCamCountdown(0);
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
@@ -554,10 +629,11 @@ export default function App() {
       // Flip horizontal for intuitive mirror selfie feel if front camera
       ctx.drawImage(videoRef.current, 0, 0, 400, 400);
 
-      // Step 2: AI watermelon detection
+      // Step 2: 前端像素分析西瓜检测（零延迟）
       setIsDetectingWatermelon(true);
-      const base64 = liveCanvas.toDataURL('image/jpeg', 0.8);
-      const detection = await detectWatermelon(base64);
+      const detection = detectWatermelonFromCanvas(liveCanvas);
+      // 加一点小延迟让用户看到检测过程的感觉～
+      await new Promise(r => setTimeout(r, 600));
       setIsDetectingWatermelon(false);
 
       if (!detection.hasWatermelon) {
@@ -630,6 +706,20 @@ export default function App() {
       setIsDetectingWatermelon(false);
     }
   };
+
+  // 摄像头 5 秒自动抓拍（放在 captureWebcamAndAnalyze 定义之后）
+  useEffect(() => {
+    if (!isCameraActive || camCountdown <= 0) return;
+    const id = setTimeout(() => {
+      if (camCountdown <= 1) {
+        setCamCountdown(0);
+        captureWebcamAndAnalyze();
+      } else {
+        setCamCountdown(prev => prev - 1);
+      }
+    }, 1000);
+    return () => clearTimeout(id);
+  }, [isCameraActive, camCountdown]);
 
   // --- Simulate Virtual Taps ---
   const simulateVirtualTap = (type: 'unripe' | 'ripe' | 'overripe') => {
@@ -821,7 +911,11 @@ export default function App() {
       photoUrl: finalPhoto,
       likes: 0,
       location: customLocation.trim() || '📍 秘密吃瓜据点',
-      mood: customMood
+      mood: customMood,
+      // 华强买瓜：价格行情
+      pricePerJin: customPrice ? parseFloat(customPrice) : undefined,
+      isSelfSplit,
+      purchaseLocation: purchaseLocation.trim() || undefined
     };
 
     const updated = [newRecord, ...records];
@@ -835,7 +929,8 @@ export default function App() {
     // Cute success celebrations
     gameAudio.playSuccess();
 
-    // Redirect view to feed
+    // Refresh market index & redirect to feed
+    fetchMarketIndex();
     setActiveSegment('community');
   };
 
@@ -885,7 +980,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-1.5 font-black text-rose-600 mt-0.5">
             <span>🕐</span>
-            <span>不吃隔夜瓜！每日晒瓜数据将在凌晨 <strong className="text-xs sm:text-sm bg-rose-500 text-white font-black px-2 py-0.5 rounded-md border border-emerald-950 font-mono shadow-[1.5px_1.5px_0px_0px_#4c0519]">01:00</strong> 清空重置</span>
+            <span>不吃隔夜瓜！距离凌晨清空还剩 <strong className="text-xs sm:text-sm bg-rose-500 text-white font-black px-2 py-0.5 rounded-md border border-emerald-950 font-mono shadow-[1.5px_1.5px_0px_0px_#4c0519]">{resetCountdown || '--:--:--'}</strong></span>
           </div>
           <p className="text-emerald-900 leading-normal font-bold text-center">
             🔔 <strong>不吃隔夜瓜小喇叭</strong>：隔夜西瓜可不好吃！每天凌晨 <strong>01:00</strong> 瓜田会清清爽爽焕新，昨天的瓜贴都会变成甜蜜回忆～趁新鲜赶紧拍拍瓜、晒晒图吧！🍉
@@ -991,7 +1086,7 @@ export default function App() {
                             : 'bg-white text-emerald-950 hover:bg-emerald-100'
                         }`}
                       >
-                        {isListeningMic ? '🔴 点击结束监听' : '🎙️ 开启监听'}
+                        {isListeningMic ? `🔴 停止 (${micCountdown}s)` : '🎙️ 开启监听'}
                       </button>
                     </div>
 
@@ -1088,7 +1183,7 @@ export default function App() {
                           isCameraActive ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-emerald-950 hover:bg-emerald-100'
                         }`}
                       >
-                        {isCameraActive ? '🔴 关掉镜头' : '📷 打开小镜头'}
+                        {isCameraActive ? `🔴 关掉 (${camCountdown}s)` : '📷 打开小镜头'}
                       </button>
                     </div>
 
@@ -1170,9 +1265,20 @@ export default function App() {
                             muted
                             className="absolute w-full h-full object-cover transform scale-x-[-1]"
                           />
+                          {/* 抓拍倒计时覆盖层 */}
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                            <div className="text-center">
+                              <span className="text-6xl font-black text-white drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] animate-pulse">
+                                {camCountdown}
+                              </span>
+                              <p className="text-xs font-black text-white/80 mt-1 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
+                                {camCountdown > 1 ? '秒后自动抓拍' : '正在抓拍...'}
+                              </p>
+                            </div>
+                          </div>
                           {/* Circle boundary indicator overlay */}
-                          <div className="absolute inset-0 border-8 border-rose-500/30 rounded-full animate-pulse flex items-center justify-center">
-                            <span className="text-[10px] text-white font-black bg-rose-600 border border-emerald-950 px-2 py-0.5 rounded-full absolute bottom-4">
+                          <div className="absolute inset-0 border-8 border-rose-500/30 rounded-full flex items-center justify-center pointer-events-none">
+                            <span className="text-[10px] text-white font-black bg-rose-600/70 border border-emerald-950 px-2 py-0.5 rounded-full absolute bottom-4">
                               西瓜对准红框中央
                             </span>
                           </div>
@@ -1201,7 +1307,7 @@ export default function App() {
                         disabled={isDetectingWatermelon}
                         className="mt-4 w-full bg-emerald-800 hover:bg-emerald-900 border-2 border-emerald-950 text-white font-extrabold text-xs py-2 rounded-xl transition-all duration-150 shadow-[2px_2px_0px_0px_#042f24] active:translate-y-[1px] disabled:opacity-60 disabled:cursor-wait"
                       >
-                        {isDetectingWatermelon ? '🔍 小精灵正在帮你看看有没有瓜...' : '📸 拍照看看瓜长啥样'}
+                        {isDetectingWatermelon ? '🔍 小精灵正在看...' : `📸 立即抓拍 (${camCountdown}s)`}
                       </button>
                     )}
 
@@ -1493,100 +1599,117 @@ export default function App() {
                         />
                       </div>
 
-                      {/* Location selector */}
+                      {/* Location — GPS 自动定位 */}
                       <div className="bg-amber-50/50 p-4 border-2 border-emerald-950 rounded-2xl space-y-3 shadow-[2px_2px_0px_0px_#064e3b]">
                         <div className="flex items-center justify-between">
                           <label className="block text-xs font-black text-emerald-950 flex items-center gap-1">
-                            <span>📍</span> 标记好瓜原产地
+                            <span>📍</span> 你在哪片瓜田？
                           </label>
-                          <span className="text-[10px] text-emerald-800/60 font-bold">在吃瓜广场标记当前甜蜜信号</span>
                         </div>
-
-                        {/* Location selection method toggle buttons */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={handleAutoGetLocation}
-                            disabled={isFetchingLocation}
-                            className={`py-1.5 px-3 rounded-xl border-2 font-bold text-[11px] flex items-center justify-center gap-1 transition-all ${
-                              locationMethod === 'automatic'
-                                ? 'bg-emerald-800 text-white border-emerald-950 shadow-[1px_1px_0px_0px_#042f24]'
-                                : 'bg-white text-emerald-950 border-emerald-950/20 hover:bg-emerald-50'
-                            }`}
-                          >
-                            {isFetchingLocation ? (
-                              <span className="flex items-center gap-1 text-[11px]">
-                                <span className="animate-spin text-[10px] inline-block">🌀</span> 定位中...
-                              </span>
-                            ) : (
-                              <>
-                                <span>📱</span> 自动GPS定位
-                              </>
-                            )}
-                          </button>
-                          
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLocationMethod('manual');
-                              gameAudio.playPop();
-                            }}
-                            className={`py-1.5 px-3 rounded-xl border-2 font-bold text-[11px] flex items-center justify-center gap-1 transition-all ${
-                              locationMethod === 'manual'
-                                ? 'bg-emerald-800 text-white border-emerald-950 shadow-[1px_1px_0px_0px_#042f24]'
-                                : 'bg-white text-emerald-950 border-emerald-950/20 hover:bg-emerald-50'
-                            }`}
-                          >
-                            <span>✍️</span> 手动/原产地
-                          </button>
-                        </div>
-
-                        {/* Automatic GPS location status display OR manual picker option */}
-                        {locationMethod === 'automatic' ? (
+                        <button
+                          type="button"
+                          onClick={handleAutoGetLocation}
+                          disabled={isFetchingLocation}
+                          className="w-full py-2.5 px-4 rounded-xl border-2 border-emerald-950 font-black text-xs bg-white hover:bg-emerald-50 transition-all flex items-center justify-center gap-2 shadow-[1.5px_1.5px_0px_0px_#064e3b] active:translate-y-[1px]"
+                        >
+                          {isFetchingLocation ? (
+                            <span className="flex items-center gap-1">
+                              <span className="animate-spin inline-block">🌀</span> 正在定位你的瓜田...
+                            </span>
+                          ) : (
+                            <>
+                              <span>📱</span> 点我自动定位
+                            </>
+                          )}
+                        </button>
+                        {customLocation && (
                           <div className="bg-emerald-100/60 p-2.5 rounded-xl border border-emerald-300 flex items-center justify-between">
-                            <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold text-emerald-900 truncate">
+                            <div className="flex items-center gap-1.5 font-bold text-[11px] text-emerald-900 truncate">
                               <span className="animate-pulse">🟢</span>
                               <span className="truncate">{customLocation}</span>
                             </div>
-                            <span className="text-[9px] font-black text-emerald-900 shrink-0 bg-emerald-200 px-1.5 py-0.5 rounded-md">
-                              GPS真定位
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {/* Preset plantation chips */}
-                            <div className="flex flex-wrap gap-1.5">
-                              {['📍 北京·庞各庄大西瓜', '📍 新疆·哈密甜甜葡萄沙地', '📍 宁夏·中卫高山砂田', '📍 海南·三亚椰林海风瓜', '📍 浙江·温岭滨海小瓜棚', '📍 家里·冰爽空调房'].map((loc) => (
-                                <button
-                                  key={loc}
-                                  type="button"
-                                  onClick={() => {
-                                    setCustomLocation(loc);
-                                    gameAudio.playPop();
-                                  }}
-                                  className={`text-[10px] font-extrabold px-2 py-1 rounded-lg border transition-all ${
-                                    customLocation === loc
-                                      ? 'bg-rose-100 text-rose-900 border-rose-300 scale-95 font-black'
-                                      : 'bg-white text-emerald-950 border-emerald-950/15 hover:bg-emerald-50'
-                                  }`}
-                                >
-                                  {loc.replace('📍 ', '')}
-                                </button>
-                              ))}
-                            </div>
-                            
-                            {/* Manual custom input */}
-                            <div>
-                              <input
-                                type="text"
-                                value={customLocation}
-                                onChange={(e) => setCustomLocation(e.target.value)}
-                                className="w-full bg-white border-2 border-emerald-950 rounded-xl px-3 py-2 text-xs focus:ring-0 focus:border-rose-500 font-bold text-emerald-950"
-                                placeholder="✏️ 手写位置 (如：电脑桌前、阳台小竹椅等)"
-                              />
-                            </div>
                           </div>
                         )}
+                      </div>
+
+                      {/* 华强买瓜：价格上报 */}
+                      <div className="bg-amber-50/80 border-2 border-emerald-950 p-4 rounded-2xl space-y-3 shadow-[2px_2px_0px_0px_#064e3b]">
+                        <div className="flex items-center gap-2 border-b-2 border-dashed border-emerald-950/10 pb-2">
+                          <span className="text-base">💰</span>
+                          <span className="text-xs font-black text-emerald-950">华强买瓜 · 这瓜多少钱一斤？</span>
+                          <span className="text-[9px] text-amber-700 font-bold bg-amber-100 px-1.5 py-0.5 rounded">选填</span>
+                        </div>
+                        {/* 单价拖拽条 */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-[10px] font-black text-emerald-900 flex items-center gap-1">
+                              💴 这瓜多少钱一斤？
+                            </label>
+                            <span className="text-sm font-black text-rose-600">
+                              {customPrice ? `¥${customPrice} /斤` : '还没选～'}
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="20"
+                            step="0.5"
+                            value={customPrice || 0}
+                            onChange={e => setCustomPrice(e.target.value)}
+                            className="w-full h-2 bg-emerald-200 rounded-full appearance-none cursor-pointer accent-rose-500 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-emerald-950"
+                          />
+                          <div className="flex justify-between text-[8px] text-emerald-500 font-medium mt-0.5">
+                            <span>¥0 (白送?)</span>
+                            <span>¥10</span>
+                            <span>¥20 (金子做的?)</span>
+                          </div>
+                        </div>
+
+                        {/* 在哪买的 + 谁劈的 */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[10px] font-black text-emerald-900 flex items-center gap-1 mb-1">
+                              🌍 在哪买的
+                            </label>
+                            <input
+                              type="text"
+                              value={purchaseLocation}
+                              onChange={e => setPurchaseLocation(e.target.value)}
+                              placeholder="街角水果摊 / 超市 / 菜市场"
+                              className="w-full px-3 py-2 text-xs font-bold rounded-xl border-2 border-emerald-950 bg-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                            />
+                          </div>
+                          {/* 劈瓜选择：自己劈 vs 摊主劈 */}
+                          <div>
+                            <label className="text-[10px] font-black text-emerald-900 flex items-center gap-1 mb-1">
+                              🔪 谁劈的瓜？
+                            </label>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setIsSelfSplit(true)}
+                                className={`py-1.5 px-2 rounded-xl text-[10px] font-black border-2 transition-all ${
+                                  isSelfSplit
+                                    ? 'bg-rose-500 text-white border-rose-700 shadow-[1px_1px_0px_0px_#9b1c1c]'
+                                    : 'bg-white text-emerald-950 border-emerald-950/30 hover:bg-rose-50'
+                                }`}
+                              >
+                                🔪 自己劈的
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setIsSelfSplit(false)}
+                                className={`py-1.5 px-2 rounded-xl text-[10px] font-black border-2 transition-all ${
+                                  !isSelfSplit
+                                    ? 'bg-amber-500 text-white border-amber-700 shadow-[1px_1px_0px_0px_#92400e]'
+                                    : 'bg-white text-emerald-950 border-emerald-950/30 hover:bg-amber-50'
+                                }`}
+                              >
+                                🗡️ 摊主劈的
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
                       {/* AI-Powered Content Moderation Rule Board and Real-time Preview */}
@@ -1741,6 +1864,88 @@ export default function App() {
                 </p>
               </div>
 
+              {/* 华强买瓜：今日行情看板 */}
+              {marketIndex && marketIndex.totalRecords > 0 && (
+                <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-emerald-950 rounded-2xl p-4 mb-6 shadow-[3px_3px_0px_0px_#064e3b]">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-black text-emerald-950 flex items-center gap-2">
+                      📊 这瓜保熟吗？今日行情
+                    </h3>
+                    <button
+                      onClick={() => setShowMarketPanel(!showMarketPanel)}
+                      className="text-[10px] font-black text-emerald-950 bg-white border-2 border-emerald-950 px-2 py-0.5 rounded-lg"
+                    >
+                      {showMarketPanel ? '收起 🔼' : '展开 🔽'}
+                    </button>
+                  </div>
+                  {showMarketPanel && (
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                        {marketIndex.avgPrice !== null && (
+                          <div className="bg-white border-2 border-emerald-950 rounded-xl p-2.5 text-center">
+                            <p className="text-[9px] font-bold text-emerald-700">今日均价</p>
+                            <p className="text-lg font-black text-rose-600">¥{marketIndex.avgPrice}</p>
+                            <p className="text-[8px] text-emerald-600">
+                              元/市斤
+                              {marketIndex.yesterday?.avgPrice != null && (
+                                marketIndex.avgPrice! < marketIndex.yesterday.avgPrice
+                                  ? ' 📉 比昨天便宜'
+                                  : marketIndex.avgPrice! > marketIndex.yesterday.avgPrice
+                                  ? ' 📈 比昨天贵了'
+                                  : ' ➡️ 和昨天持平'
+                              )}
+                            </p>
+                          </div>
+                        )}
+                        <div className="bg-white border-2 border-emerald-950 rounded-xl p-2.5 text-center">
+                          <p className="text-[9px] font-bold text-emerald-700">好瓜率</p>
+                          <p className="text-lg font-black text-emerald-600">{marketIndex.ripeRate}%</p>
+                          <p className="text-[8px] text-emerald-600">{marketIndex.totalRecords} 条瓜报</p>
+                        </div>
+                        <div className="bg-white border-2 border-emerald-950 rounded-xl p-2.5 text-center">
+                          <p className="text-[9px] font-bold text-emerald-700">生瓜蛋子率</p>
+                          <p className={`text-lg font-black ${marketIndex.rawRate > 30 ? 'text-red-500' : 'text-amber-500'}`}>
+                            {marketIndex.rawRate}%
+                          </p>
+                          <p className="text-[8px] text-emerald-600">{marketIndex.rawRate > 30 ? '⚠️ 避坑预警' : '还行'}</p>
+                        </div>
+                        <div className="bg-white border-2 border-emerald-950 rounded-xl p-2.5 text-center">
+                          <p className="text-[9px] font-bold text-emerald-700">劈瓜勇士</p>
+                          <p className="text-lg font-black text-rose-500">{marketIndex.selfSplitRate}%</p>
+                          <p className="text-[8px] text-emerald-600">自己动刀的！🔪</p>
+                        </div>
+                      </div>
+                      <div className="bg-white border-2 border-dashed border-emerald-950/30 rounded-xl p-3 text-center">
+                        <p className="text-xs font-black text-emerald-900">
+                          💬 华强说：<span className="text-rose-600 italic">"{marketIndex.huaqiangComment}"</span>
+                        </p>
+                      </div>
+                      {marketIndex.cityStats && marketIndex.cityStats.length > 0 && (
+                        <div className="bg-white border-2 border-emerald-950 rounded-xl p-3">
+                          <p className="text-[10px] font-black text-emerald-950 mb-2">🏙️ 各城市瓜价一览</p>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {marketIndex.cityStats.map((cs: CityStat, i: number) => (
+                              <div key={i} className="bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 text-center">
+                                <p className="text-[10px] font-black text-emerald-900">{cs.city}</p>
+                                <p className="text-sm font-black text-rose-600">¥{cs.avgPrice}<span className="text-[8px] text-emerald-600">/斤</span></p>
+                                <p className="text-[8px] text-emerald-600">{cs.count}人报价</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* 瓜价走势图 */}
+              {marketIndex.priceHistory && marketIndex.priceHistory.length >= 2 && (
+                <div className="mb-6">
+                  <PriceChart data={marketIndex.priceHistory} />
+                </div>
+              )}
+
               {/* Feed List rendered natively */}
               <SquareFeed records={records} onLike={handleLikeRecord} />
             </motion.div>
@@ -1748,6 +1953,25 @@ export default function App() {
         </AnimatePresence>
 
       </div>
+
+      {/* 备案信息 */}
+      <footer className="flex items-center justify-center gap-4 py-6 border-t border-emerald-200/50">
+        <a
+          href={window.location.origin}
+          className="text-[10px] text-emerald-500/50 hover:text-emerald-700 transition-colors font-medium"
+        >
+          {window.location.origin}
+        </a>
+        <span className="text-emerald-300/40 text-[10px]">|</span>
+        <a
+          href="https://beian.miit.gov.cn/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[10px] text-emerald-600/60 hover:text-emerald-800 transition-colors font-medium"
+        >
+          粤ICP备2025508528号
+        </a>
+      </footer>
 
     </div>
   );

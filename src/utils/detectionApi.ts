@@ -24,7 +24,7 @@ export async function detectWatermelon(imageBase64: string): Promise<WatermelonD
         'x-shared-secret': import.meta.env.VITE_SHARED_SECRET || '',
       },
       body: JSON.stringify({ imageBase64 }),
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(18000),
     });
 
     if (!res.ok) {

@@ -101,8 +101,8 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike }) => {
             <div>
               <p className="font-extrabold text-sky-950">💾 Q1: 我的瓜贴关了网页还在吗？</p>
               <div className="pl-4 mt-1 text-sky-950/85 font-bold">
-                <p>💡 <strong>放心，瓜瓜都帮你收好啦！</strong>你测过的瓜、晒过的贴都会好好保存着，关掉网页、明天再来，你的吃瓜足迹都乖乖待在原地等你～</p>
-                <p className="mt-1">💡 <strong>换了手机/电脑？</strong>每台设备都是一片独立的小瓜田，各有各的甜蜜回忆。不管在哪台设备上，你的每一颗瓜都不会凭空消失！</p>
+                <p>💡 <strong>在的！今天发的瓜贴，大家都看得见～</strong>你测过的瓜、晒过的贴都会同步到广场上，其他吃瓜群众也能看到你的分享。关掉网页再打开，瓜贴还在～</p>
+                <p className="mt-1">💡 <strong>不过呢，每天凌晨 1:00 瓜田会焕新哦！</strong>就像不吃隔夜瓜一样，到了凌晨今天的瓜贴就会清清爽爽地清零，开启新一天的吃瓜冒险。趁新鲜赶紧晒～</p>
               </div>
             </div>
 
@@ -111,6 +111,14 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike }) => {
               <div className="pl-4 mt-1 text-sky-950/85 font-bold">
                 <p>💡 <strong>🧊 冰镇小憩，公平吃瓜～</strong>刚吃完一块瓜总要擦擦嘴嘛！发完一条瓜贴需要等 <strong>60 秒的冰镇小歇</strong>，这样广场上的每颗瓜都能被大家细细品尝，不会被一下刷走啦！</p>
                 <p className="mt-1">💡 <strong>不用注册，来了就吃！</strong>不需要填手机号、不需要记密码，第一次来的时候就偷偷塞给你一张专属的<strong>【吃瓜通行证】</strong>（比如 <code>🍉 吃瓜群众_#5829</code>），悄悄保护你的小隐私～</p>
+              </div>
+            </div>
+
+            <div className="border-t border-dashed border-sky-950/5 pt-3">
+              <p className="font-extrabold text-sky-950">🕐 Q3: 凌晨 1:00 数据就没了，那不白发了？</p>
+              <div className="pl-4 mt-1 text-sky-950/85 font-bold">
+                <p>💡 <strong>不会白发的！</strong>虽然每日瓜贴会清空重置，但你贡献的 <strong>瓜价行情</strong> 会在凌晨存档到历史记录里。你上报的价格会变成瓜价走势图上的一个数据点，影响未来的行情指数～</p>
+                <p className="mt-1">💡 <strong>每天都是新开始！</strong>就像真正的夏日吃瓜——昨天的瓜吃完了，今天再敲一个新鲜的。每天的瓜田都是崭新的一页，看谁今天能晒出最甜的梦中情瓜！🍉</p>
               </div>
             </div>
           </div>
@@ -163,10 +171,20 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike }) => {
                       <span className="text-[9.5px] text-teal-800 font-extrabold bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200/60 leading-none font-sans">
                         🧠 {getMoodBadge(item.ripenessStatus, item.mood)}
                       </span>
+                      {item.pricePerJin != null && (
+                        <span className="text-[9.5px] text-amber-800 font-extrabold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/60 leading-none font-sans">
+                          💴 ¥{item.pricePerJin}/斤
+                        </span>
+                      )}
+                      {item.isSelfSplit && (
+                        <span className="text-[9.5px] text-rose-800 font-extrabold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200/60 leading-none font-sans">
+                          🔪 自己劈的
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border-2 ${getStatusColor(item.ripenessStatus)}`}>
+                  <span className={`shrink-0 text-[10.5px] font-bold px-2 py-0.5 rounded-full border-2 whitespace-nowrap ${getStatusColor(item.ripenessStatus)}`}>
                     {getStatusEmoji(item.ripenessStatus)}
                   </span>
                 </div>

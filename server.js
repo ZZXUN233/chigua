@@ -11,7 +11,11 @@ import {
   deleteRecord,
   getRecordCount,
   getPopularRecords,
-  clearAllRecords
+  clearAllRecords,
+  getMarketIndex,
+  saveDailySnapshot,
+  getMarketHistory,
+  getPriceHistory
 } from './src/services/dbService.js';
 
 // 加载环境变量
@@ -87,8 +91,10 @@ function scheduleDailyReset() {
   setTimeout(() => {
     console.log('[Reset] 🕐 凌晨 1:00 — 不吃隔夜瓜！清除当日晒瓜数据');
     try {
+      saveDailySnapshot();  // 先存档今日行情到历史表
       clearAllRecords();
-      console.log('[Reset] ✅ SQLite 数据已清空，新一天的吃瓜开始！');
+      marketCache = { data: null, ts: 0 };
+      console.log('[Reset] ✅ SQLite 数据已清空，行情已存档，新一天的吃瓜开始！');
     } catch (err) {
       console.error('[Reset] 清空数据失败:', err.message);
     }
@@ -96,8 +102,10 @@ function scheduleDailyReset() {
     setInterval(() => {
       console.log('[Reset] 🕐 凌晨 1:00 — 不吃隔夜瓜！清除当日晒瓜数据');
       try {
+        saveDailySnapshot();
         clearAllRecords();
-        console.log('[Reset] ✅ SQLite 数据已清空，新一天的吃瓜开始！');
+        marketCache = { data: null, ts: 0 };
+        console.log('[Reset] ✅ SQLite 数据已清空，行情已存档，新一天的吃瓜开始！');
       } catch (err) {
         console.error('[Reset] 清空数据失败:', err.message);
       }
@@ -244,7 +252,7 @@ app.post('/chigua-api/detect-watermelon', requireSharedSecret, aiRateLimit, asyn
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: 'deepseek-vl2',
         messages: [
           { role: 'system', content: systemPrompt },
           {
@@ -265,7 +273,7 @@ app.post('/chigua-api/detect-watermelon', requireSharedSecret, aiRateLimit, asyn
         max_tokens: 200,
         response_format: { type: 'json_object' },
       }),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {
@@ -320,6 +328,66 @@ app.get('/chigua-api/records', (req, res) => {
       error: '服务器内部错误',
       message: error.message
     });
+  }
+});
+
+// 华强买瓜：今日行情看板（5分钟缓存）
+let marketCache = { data: null, ts: 0 };
+const MARKET_CACHE_TTL = 5 * 60 * 1000; // 5 min
+
+function generateHuaqiangComment(index) {
+  if (index.totalRecords === 0) return '你瞧瞧现在哪有瓜呀，这都是大棚的瓜！';
+  if (index.totalPriceReports === 0) return '还没人报价格呢，华强等着呢～';
+
+  const { avgPrice, ripeRate, rawRate, selfSplitRate } = index;
+
+  if (rawRate > 0.4) return '生瓜蛋子这么多？给你机会你不中用啊！';
+  if (avgPrice !== null && avgPrice < 1) return '这价比瓜皮子还便宜！华强狂喜～🍉';
+  if (avgPrice !== null && avgPrice >= 8) return "What's up！这瓜皮子是金子做的还是瓜粒子是金子做的？";
+  if (ripeRate > 0.7 && avgPrice !== null && avgPrice < 5) return '这届瓜农还行，熟瓜多价格也公道！';
+  if (selfSplitRate > 0.6) return '都是劈瓜勇士！萨日朗～🔪';
+  if (avgPrice !== null && avgPrice >= 5) return '价格有点小贵，但瓜熟就行。这瓜保熟吗？';
+  return '吃瓜群众的眼睛是雪亮的，买不了吃亏买不了上当！';
+}
+
+app.get('/chigua-api/market-index', (req, res) => {
+  try {
+    const now = Date.now();
+    if (marketCache.data && now - marketCache.ts < MARKET_CACHE_TTL) {
+      return res.json(marketCache.data);
+    }
+
+    const index = getMarketIndex();
+    // 获取昨日对比
+    const history = getMarketHistory(2);
+    const yesterday = history.length >= 2 ? history[1] : null;  // [0]=today, [1]=yesterday if exists before reset
+    const lastEntry = history[0];
+
+    const result = {
+      avgPrice: index.avgPrice,
+      totalPriceReports: index.totalPriceReports,
+      totalRecords: index.totalRecords,
+      rawRate: Math.round(index.rawRate * 100),
+      ripeRate: Math.round(index.ripeRate * 100),
+      overripeRate: Math.round(index.overripeRate * 100),
+      selfSplitRate: Math.round(index.selfSplitRate * 100),
+      huaqiangComment: generateHuaqiangComment(index),
+      cityStats: index.cityStats || [],
+      // 昨日对比（用于行情面板趋势箭头）
+      yesterday: lastEntry ? {
+        date: lastEntry.date,
+        avgPrice: lastEntry.avgPrice,
+        totalRecords: lastEntry.totalRecords,
+        ripeRate: lastEntry.ripeRate,
+      } : null,
+      priceHistory: getPriceHistory(14),
+    };
+
+    marketCache = { data: result, ts: now };
+    res.json(result);
+  } catch (error) {
+    console.error('[Market] 行情查询失败:', error);
+    res.status(500).json({ error: '行情查询失败' });
   }
 });
 
@@ -392,7 +460,10 @@ app.post('/chigua-api/records', (req, res) => {
       photoUrl: record.photoUrl || null,
       likes: record.likes || 0,
       location: record.location || null,
-      mood: record.mood || null
+      mood: record.mood || null,
+      pricePerJin: record.pricePerJin ?? null,
+      isSelfSplit: record.isSelfSplit ?? false,
+      purchaseLocation: record.purchaseLocation || null
     };
 
     saveRecord(newRecord);
@@ -479,6 +550,7 @@ app.listen(PORT, () => {
   console.log(`🔧 健康检查: http://localhost:${PORT}/chigua-api/health`);
   console.log(`🛡️ 内容审核: POST http://localhost:${PORT}/chigua-api/moderate`);
   console.log(`🔍 西瓜检测: POST http://localhost:${PORT}/chigua-api/detect-watermelon`);
+  console.log(`📈 行情看板: GET http://localhost:${PORT}/chigua-api/market-index`);
   console.log(`📊 获取记录: GET http://localhost:${PORT}/chigua-api/records`);
   console.log(`🔥 热门记录: GET http://localhost:${PORT}/chigua-api/records/popular`);
   console.log(`➕ 创建记录: POST http://localhost:${PORT}/chigua-api/records`);
