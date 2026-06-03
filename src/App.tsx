@@ -29,6 +29,7 @@ import { drawWatermelonToCanvas, getWatermelonImageURL, getSlicedWatermelonImage
 import { MODERATION_POLICY } from './utils/moderationPolicy';
 import { useModeration, checkContent } from './utils/moderationApi';
 import { detectWatermelonFromCanvas } from './utils/watermelonDetector';
+import { canPerformAction, isCoolingDown, recordAction, getRemainingPower, getDailyQuotaRemaining, getTrustProfile, formatPower } from './utils/trustSystem';
 import { convertToPixelArt } from './utils/pixelArtConverter';
 
 // Seed community data
@@ -882,7 +883,11 @@ export default function App() {
 
   // --- What's up! reaction ---
   const handleWhatsUp = (id: string) => {
+    if (isCoolingDown()) return;
+    const check = canPerformAction(melonPassport, id, 'whatsup');
+    if (!check.allowed) { alert(check.reason || '操作被限制'); return; }
     gameAudio.playPop();
+    recordAction(id, 'whatsup');
     const updated = records.map(r => {
       if (r.id === id) return { ...r, whatsUp: (r.whatsUp || 0) + 1 };
       return r;
@@ -894,7 +899,11 @@ export default function App() {
 
   // --- 踩价（降低报价在行情中的权重） ---
   const handleDisputePrice = (id: string) => {
+    if (isCoolingDown()) return;
+    const check = canPerformAction(melonPassport, id, 'dispute');
+    if (!check.allowed) { alert(check.reason || '操作被限制'); return; }
     gameAudio.playPop();
+    recordAction(id, 'dispute');
     const updated = records.map(r => {
       if (r.id === id) return { ...r, priceDisputes: (r.priceDisputes || 0) + 1 };
       return r;
@@ -902,20 +911,21 @@ export default function App() {
     saveRecordsToStorage(updated);
     fetch(`/chigua-api/records/${id}/dispute-price`, { method: 'POST' })
       .catch(err => console.warn('[Dispute] 同步失败:', err));
-    fetchMarketIndex(); // 刷新行情
+    fetchMarketIndex();
   };
 
   // --- Like a Watermelon post inside SquareFeed ---
   const handleLikeRecord = (id: string) => {
+    if (isCoolingDown()) return;
+    const check = canPerformAction(melonPassport, id, 'like');
+    if (!check.allowed) { alert(check.reason || '操作被限制'); return; }
     gameAudio.playPop();
+    recordAction(id, 'like');
     const updated = records.map(r => {
-      if (r.id === id) {
-        return { ...r, likes: r.likes + 1 };
-      }
+      if (r.id === id) return { ...r, likes: r.likes + 1 };
       return r;
     });
     saveRecordsToStorage(updated);
-    // Sync like to server
     fetch(`/chigua-api/records/${id}/like`, { method: 'POST' })
       .catch(err => console.warn('[Like] 同步点赞失败:', err));
   };
@@ -1598,8 +1608,20 @@ export default function App() {
                         <span className="text-base">🎫</span>
                         <div>
                           <p className="text-[9.5px] font-bold text-gray-500">本地吃瓜安全通行证 (绿码防刷免注册)</p>
-                          <p className="text-xs font-black text-emerald-950 font-mono tracking-wider">{melonPassport || '生成中...'}</p>
+                          <p className="text-xs font-black text-emerald-950 font-mono tracking-wider">
+                            {melonPassport || '生成中...'}
+                            <span className="ml-1.5 text-[10px] font-bold text-amber-600">
+                              {getTrustProfile(melonPassport).badge}
+                            </span>
+                          </p>
                         </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-700">
+                        <span title="今日瓜力（每次操作消耗1点，凌晨恢复）">
+                          ⚡{getRemainingPower()}/{10}
+                        </span>
+                        <span className="text-emerald-400">|</span>
+                        <span title="今日剩余点赞/踩/What's up">👍{getDailyQuotaRemaining('like')}</span>
                       </div>
 
                       {cooldownRemaining > 0 ? (
