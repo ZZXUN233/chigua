@@ -27,6 +27,7 @@ import { gameAudio } from './utils/audioSynth';
 import { drawWatermelonToCanvas, getWatermelonImageURL, getSlicedWatermelonImageURL } from './utils/watermelonDrawer';
 import { MODERATION_POLICY } from './utils/moderationPolicy';
 import { useModeration, checkContent } from './utils/moderationApi';
+import { convertToPixelArt } from './utils/pixelArtConverter';
 
 // Seed community data
 const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
@@ -226,27 +227,23 @@ export default function App() {
 
     const saved = localStorage.getItem('melon_masters_records');
 
-    // --- Parse or Reset Watermelon Eating Season Cycle ---
-    let cycleEndTimeStr = localStorage.getItem('melon_cycle_end_time');
-    if (!cycleEndTimeStr) {
-      // Initialize with a 7-day-ish peak cycle (e.g. 6.8 days to display as 7 days)
-      const freshEnd = Date.now() + 6.8 * 24 * 60 * 60 * 1000;
-      localStorage.setItem('melon_cycle_end_time', String(freshEnd));
-      cycleEndTimeStr = String(freshEnd);
-    }
+    // --- "不吃隔夜瓜" — 每日凌晨1:00清除当日晒瓜数据 ---
+    const getTodayStr = () => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
 
-    let cycleEndTime = parseInt(cycleEndTimeStr);
+    const lastResetDate = localStorage.getItem('melon_last_reset_date');
+    const todayStr = getTodayStr();
+    const today1AM = new Date();
+    today1AM.setHours(1, 0, 0, 0);
+
+    // 如果已过今日凌晨1点且还没重置过，或从未重置过（首次）
     let forceReset = false;
-    if (isNaN(cycleEndTime) || Date.now() >= cycleEndTime) {
-      // Cycle ended! Clear custom posts, reset to a new cycle
-      const freshEnd = Date.now() + 6.8 * 24 * 60 * 60 * 1000;
-      localStorage.setItem('melon_cycle_end_time', String(freshEnd));
-      cycleEndTime = freshEnd;
+    if (Date.now() >= today1AM.getTime() && lastResetDate !== todayStr) {
       forceReset = true;
+      localStorage.setItem('melon_last_reset_date', todayStr);
     }
-
-    const calcDays = Math.max(1, Math.ceil((cycleEndTime - Date.now()) / (1000 * 3600 * 24)));
-    setDaysRemaining(calcDays);
 
     if (saved && !forceReset) {
       try {
@@ -255,7 +252,7 @@ export default function App() {
         console.error(err);
       }
     } else {
-      // Seed with initial realistic data complete with procedural picture URLs
+      // Reset — seed with fresh daily data
       const fullySeeded = DEFAULT_COMMUNITY_MELONS.map(m => {
         return {
           ...m,
@@ -265,6 +262,30 @@ export default function App() {
       setRecords(fullySeeded);
       localStorage.setItem('melon_masters_records', JSON.stringify(fullySeeded));
     }
+
+    // Calculate ms until next 1:00 AM for the auto-reset timer
+    const next1AM = new Date();
+    next1AM.setDate(next1AM.getDate() + 1);
+    next1AM.setHours(1, 0, 0, 0);
+    const msUntilNext1AM = next1AM.getTime() - Date.now();
+
+    // Set leftover hours display
+    const hoursLeft = Math.max(1, Math.ceil(msUntilNext1AM / (1000 * 3600)));
+    setDaysRemaining(hoursLeft);
+
+    const resetTimer = setTimeout(() => {
+      const seeded = DEFAULT_COMMUNITY_MELONS.map(m => ({
+        ...m,
+        photoUrl: getWatermelonImageURL(m.ripenessStatus, m.name)
+      }));
+      setRecords(seeded);
+      localStorage.setItem('melon_masters_records', JSON.stringify(seeded));
+      const newDateStr = getTodayStr();
+      localStorage.setItem('melon_last_reset_date', newDateStr);
+      setDaysRemaining(24);
+    }, msUntilNext1AM);
+
+    return () => clearTimeout(resetTimer);
   }, []);
 
   // Sync state to local storage when changed
@@ -498,23 +519,15 @@ export default function App() {
       const sdG = Math.sqrt(sumSqDiff / stripeVarianceBucket.length);
 
       // Compute simple ratios
-      // Vivid green (ripe) will have high green ratio; dark thick stripes will yield high standard deviation
-      const rawContrast = Math.min(1, sdG / 65); // normalized roughly
+      const rawContrast = Math.min(1, sdG / 65);
       const rawG = Math.min(1, Math.max(0.1, meanG / 180));
 
       setDetectedContrast(rawContrast);
       setDetectedGreenness(rawG);
 
-      // Cute drawing of target watermelon overlay on the taken photo
-      ctx.strokeStyle = '#22C55E';
-      ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.arc(200, 200, 160, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Convert captured scene to data URL
-      const dataUrl = liveCanvas.toDataURL('image/png');
-      setCapturedPhotoUrl(dataUrl);
+      // Convert to cute pixel-art watermelon (replaces raw photo storage)
+      const pixelArtUrl = convertToPixelArt(liveCanvas, testResultStatus);
+      setCapturedPhotoUrl(pixelArtUrl);
       stopCamera();
 
       // Audio cues
@@ -771,8 +784,8 @@ export default function App() {
             新鲜保质 🧊
           </div>
           <div className="flex items-center gap-1.5 font-black text-rose-600 mt-0.5">
-            <span>⏳</span>
-            <span>本次吃瓜周期仅剩 <strong className="text-xs sm:text-sm bg-rose-500 text-white font-black px-2 py-0.5 rounded-md border border-emerald-950 font-mono shadow-[1.5px_1.5px_0px_0px_#4c0519]">{daysRemaining}</strong> 天结束</span>
+            <span>🕐</span>
+            <span>不吃隔夜瓜！每日晒瓜数据将在凌晨 <strong className="text-xs sm:text-sm bg-rose-500 text-white font-black px-2 py-0.5 rounded-md border border-emerald-950 font-mono shadow-[1.5px_1.5px_0px_0px_#4c0519]">01:00</strong> 清空重置</span>
           </div>
           <p className="text-emerald-900 leading-normal font-bold text-center">
             🔔 <strong>吃瓜防质变通知</strong>：为防止成熟西瓜"融化酸腐"或"过度熟烂"，倒计时归零时系统将进行<strong>一键全员冷藏净化（永久销毁全场数据）</strong>。瓜田不留隔夜汗，快趁鲜甜多多拍瓜、分享大作吧！~
