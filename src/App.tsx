@@ -49,7 +49,7 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
   },
   {
     id: 'seed-2',
-    name: '隔壁室友抢到的“白瓤南瓜”',
+    name: '隔壁室友抢到的"白瓤南瓜"',
     soundScore: 20,
     lookScore: 35,
     overallScore: 26,
@@ -67,7 +67,7 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
   },
   {
     id: 'seed-3',
-    name: '外卖盲开的“沙瓤爆浆王”',
+    name: '外卖盲开的"沙瓤爆浆王"',
     soundScore: 88,
     lookScore: 90,
     overallScore: 89,
@@ -373,7 +373,7 @@ export default function App() {
 
       } catch (err) {
         console.warn('Microphone permission or hardware issue:', err);
-        alert('无法启动麦克风。程序将自动为您切换为“虚拟听声测试”，即使没有麦克风，点击按钮也有仿真声效和好玩判定哦！');
+        alert('无法启动麦克风。程序将自动为您切换为"虚拟听声测试"，即使没有麦克风，点击按钮也有仿真声效和好玩判定哦！');
         setUseRealMic(false);
       }
     }
@@ -435,7 +435,7 @@ export default function App() {
         gameAudio.playPop();
       } catch (err) {
         console.warn('Camera failed:', err);
-        alert('无法打开摄像头，将为您激活“仿真瓜田选瓜”模式，您可通过选用多种不同成色西瓜直接进行趣味测瓜。');
+        alert('无法打开摄像头，将为您激活"仿真瓜田选瓜"模式，您可通过选用多种不同成色西瓜直接进行趣味测瓜。');
         setUseRealCamera(false);
       }
     }
@@ -534,7 +534,7 @@ export default function App() {
   // --- Analyze Ripeness Results ---
   const executeScanAnalysis = () => {
     if (detectedFrequency === 0) {
-      alert('请先「敲一下」西瓜获取拍击频率！（点击“仿真敲击”声音按钮、或开启麦克风用拳头轻轻叩击西瓜）');
+      alert('请先「敲一下」西瓜获取拍击频率！（点击"仿真敲击"声音按钮、或开启麦克风用拳头轻轻叩击西瓜）');
       return;
     }
 
@@ -755,7 +755,7 @@ export default function App() {
             <span>本次吃瓜周期仅剩 <strong className="text-xs sm:text-sm bg-rose-500 text-white font-black px-2 py-0.5 rounded-md border border-emerald-950 font-mono shadow-[1.5px_1.5px_0px_0px_#4c0519]">{daysRemaining}</strong> 天结束</span>
           </div>
           <p className="text-emerald-900 leading-normal font-bold text-center">
-            🔔 <strong>吃瓜防质变通知</strong>：为防止成熟西瓜“融化酸腐”或“过度熟烂”，倒计时归零时系统将进行<strong>一键全员冷藏净化（永久销毁全场数据）</strong>。瓜田不留隔夜汗，快趁鲜甜多多拍瓜、分享大作吧！~
+            🔔 <strong>吃瓜防质变通知</strong>：为防止成熟西瓜"融化酸腐"或"过度熟烂"，倒计时归零时系统将进行<strong>一键全员冷藏净化（永久销毁全场数据）</strong>。瓜田不留隔夜汗，快趁鲜甜多多拍瓜、分享大作吧！~
           </p>
         </div>
 
@@ -1099,7 +1099,7 @@ export default function App() {
                   <div className="bg-amber-100 border-4 border-emerald-950 p-4 rounded-3xl shadow-[3px_3px_0px_0px_#064e3b] text-center space-y-3">
                     <p className="text-xs font-black text-emerald-950 leading-relaxed">
                       {detectedFrequency === 0 
-                        ? '💡 提示：敲击西瓜获取响声频率后，即可解锁“拍瓜分析”！'
+                        ? '💡 提示：敲击西瓜获取响声频率后，即可解锁"拍瓜分析"！'
                         : '🎉 恭喜！数据捕获完毕，可立即开始物理学大瓜测算！'}
                     </p>
 
@@ -1245,9 +1245,9 @@ export default function App() {
                              '🧘 佛系看淡心境'}
                           </span>
                           <p className="text-[10.5px] font-bold text-emerald-900 leading-relaxed font-sans">
-                            {testResultStatus === 'unripe' && '“不熟虽有生涩，但也是对未知的期待。静下心放它两天，静待花开！”'}
-                            {testResultStatus === 'ripe' && '“黄金熟度刚好！咔嚓爆汁，多巴胺元气瞬间溢出，感觉夏天被注满了甘甜！”'}
-                            {testResultStatus === 'overripe' && '“熟透也是一种极致。沙瓤温柔如老江湖看淡风云，躺平随缘，淡定看天。”'}
+                            {testResultStatus === 'unripe' && '"不熟虽有生涩，但也是对未知的期待。静下心放它两天，静待花开！"'}
+                            {testResultStatus === 'ripe' && '"黄金熟度刚好！咔嚓爆汁，多巴胺元气瞬间溢出，感觉夏天被注满了甘甜！"'}
+                            {testResultStatus === 'overripe' && '"熟透也是一种极致。沙瓤温柔如老江湖看淡风云，躺平随缘，淡定看天。"'}
                           </p>
                         </div>
                       </div>
@@ -1587,35 +1587,13 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              <div className="mb-6 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-                <div>
-                  <h2 className="text-xl font-black text-emerald-950 flex items-center gap-2">
-                    🍉 热门晒瓜广场
-                  </h2>
-                  <p className="text-xs text-emerald-800">
-                    看看全国吃瓜群众们鉴定的“梦中情西瓜”与“踩雷白瓤瓜”！
-                  </p>
-                </div>
-                
-                {/* Reset community button */}
-                <button
-                  onClick={() => {
-                    if (confirm('确认还原吃瓜广场的初始默认瓜贴吗？')) {
-                      localStorage.removeItem('melon_masters_records');
-                      const fullySeeded = DEFAULT_COMMUNITY_MELONS.map(m => {
-                        return {
-                          ...m,
-                          photoUrl: getWatermelonImageURL(m.ripenessStatus, m.name)
-                        };
-                      });
-                      saveRecordsToStorage(fullySeeded);
-                      gameAudio.playSuccess();
-                    }
-                  }}
-                  className="self-start text-[10px] bg-white border-2 border-emerald-950 px-2 py-1 text-emerald-900 font-bold hover:bg-emerald-50 rounded-lg shadow-[1px_1px_0px_0px_#064e3b]"
-                >
-                  🧹 重置初始广场
-                </button>
+              <div className="mb-6">
+                <h2 className="text-xl font-black text-emerald-950 flex items-center gap-2">
+                  🍉 热门晒瓜广场
+                </h2>
+                <p className="text-xs text-emerald-800">
+                  看看全国吃瓜群众们鉴定的"梦中情西瓜"与"踩雷白瓤瓜"！
+                </p>
               </div>
 
               {/* Feed List rendered natively */}
