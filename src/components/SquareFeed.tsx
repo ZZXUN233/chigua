@@ -97,20 +97,20 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike }) => {
         </div>
 
         {showSecurityLab && (
-          <div className="mt-3pt-3 border-t-2 border-dashed border-sky-950/10 space-y-3.5 text-[11px] leading-relaxed text-sky-900 font-sans">
+          <div className="mt-3 pt-3 border-t-2 border-dashed border-sky-950/10 space-y-3.5 text-[11px] leading-relaxed text-sky-900 font-sans">
             <div>
-              <p className="font-extrabold text-sky-950">💾 Q1: 这个小应用的数据持久化怎么做？考虑用 SQLite 吗？</p>
+              <p className="font-extrabold text-sky-950">💾 Q1: 我的瓜贴和测评数据会丢失吗？刷新页面还在吗？</p>
               <div className="pl-4 mt-1 text-sky-950/85 font-bold">
-                <p>💡 <strong>单机与离线环境</strong>：目前本程序采用 <code>localStorage</code>，将您测评、打分的本地西瓜和您发表在广场的帖子无缝归集，刷新浏览器或关闭标签也不会丢失，对单玩家或本地闭环测试极其可靠！</p>
-                <p className="mt-1">💡 <strong>为什么没有采用 SQLite</strong>：SQLite 是本机的单文件锁数据库。在现代<strong>云端动态扩容弹性架构（如多节点部署、Serverless 容器如 Cloud Run）</strong>中，每次发布或冷启动容器都会重置本地临时磁盘。若有多个端同时读写单文件 SQLite 会触发磁盘 IO 独占锁。因此，在多人联机部署中，<strong>真正的最优方案是将数据对接到 Google Firestore（无服务器云 NoSQL 存储）</strong>，拥有完美的端对端数据高吞吐实时同步能力！</p>
+                <p>💡 <strong>放心，数据安全保存！</strong>您测评、打分的西瓜和发表在广场的帖子都会自动保存在本地，刷新浏览器或关闭标签页也不会丢失。即使下次打开同一台设备，您的吃瓜记录依然完好如初！</p>
+                <p className="mt-1">💡 <strong>多设备同步</strong>：如果您在不同设备上使用，每台设备会独立保存各自的瓜贴。您的每一份吃瓜成果都不会凭空消失！</p>
               </div>
             </div>
 
             <div className="border-t border-dashed border-sky-950/5 pt-3">
-              <p className="font-extrabold text-sky-950">🛡️ Q2: 如何避免被恶意机械刷屏？需要做强制用户注册吗？</p>
+              <p className="font-extrabold text-sky-950">🛡️ Q2: 为什么发帖后要等一会才能再发？</p>
               <div className="pl-4 mt-1 text-sky-950/85 font-bold">
-                <p>💡 <strong>不妥协的无痕免注册体验</strong>：为了保持吃瓜广场“即开即用、清爽可爱”的灵魂，我们声明<strong>绝不强制要求您注册手机或账号</strong>（拒绝搜集一切隐私）。作为代替，系统在各个端首次运行阶段，利用随机数生成您专属独特的<strong>【吃瓜通行证 ID】</strong>（例如 <code>🍉 吃瓜群众_#5829</code>），与本地状态绑定。</p>
-                <p className="mt-1">💡 <strong>冰镇倒计时限流法</strong>：系统内置了 <strong>“60 秒冰箱物理冰冻倒计时”</strong>，此冷却时间保存于存储中，未清温前无法发布瓜贴。这样在无需账号的极其极简的零摩擦环境里，安全阻断了狂躁手速刷屏倾向，十分清凉科学！</p>
+                <p>💡 <strong>冰镇倒计时，防止刷屏</strong>：为了让大家都能愉快吃瓜、公平分享，系统设置了 <strong>60 秒的冰镇冷却时间</strong>。发完一条瓜贴后，需要等待冰镇结束才能发布下一条。这样可以避免有人疯狂刷屏，让广场保持清爽有序！</p>
+                <p className="mt-1">💡 <strong>无需注册，即开即用</strong>：我们不要求您注册账号或手机号，首次使用时系统会自动生成您的专属<strong>【吃瓜通行证】</strong>（如 <code>🍉 吃瓜群众_#5829</code>），保护隐私的同时享受完整功能！</p>
               </div>
             </div>
           </div>
@@ -211,7 +211,7 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike }) => {
 
                 {/* Comments */}
                 <p className="text-emerald-950 text-xs font-medium leading-relaxed bg-amber-50/50 p-2.5 rounded-xl border-2 border-dashed border-emerald-900/10 mb-4 italic">
-                  “ {item.message || '这个吃瓜群众很懒，只留下了分数默默走开。'} ”
+                  " {item.message || '这个吃瓜群众很懒，只留下了分数默默走开。'} "
                 </p>
               </div>
 
