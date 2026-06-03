@@ -8,6 +8,7 @@ import {
   getAllRecords,
   getRecordById,
   likeRecord,
+  whatsUpRecord,
   deleteRecord,
   getRecordCount,
   getPopularRecords,
@@ -204,6 +205,44 @@ app.post('/chigua-api/moderate', requireSharedSecret, aiRateLimit, async (req, r
     console.error('[Moderate] 审核请求失败:', error.message);
     // Fail open — 任何异常都允许发布
     res.json({ flagged: false, categories: [], suggestion: null });
+  }
+});
+
+// 华强语气改写
+app.post('/chigua-api/huaqiang-rewrite', requireSharedSecret, aiRateLimit, async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return res.status(400).json({ error: '请提供需要改写的文本' });
+    }
+
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    if (!apiKey || apiKey === 'your-deepseek-api-key-here') {
+      return res.json({ rewritten: text });
+    }
+
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: '你是《征服》里的刘华强。用华强的语气（嚣张、质问、江湖气）改写用户的话。加入"哥们儿""What\'s up""这瓜保熟吗""萨日朗""生瓜蛋子""给你机会你不中用啊"等经典台词风味。控制在50字以内。直接输出改写结果，不要解释。' },
+          { role: 'user', content: text.trim() }
+        ],
+        temperature: 0.9,
+        max_tokens: 150,
+      }),
+      signal: AbortSignal.timeout(6000),
+    });
+
+    if (!response.ok) return res.json({ rewritten: text });
+    const data = await response.json();
+    const rewritten = data.choices?.[0]?.message?.content?.trim() || text;
+    res.json({ rewritten });
+  } catch (err) {
+    console.error('[Huaqiang] 改写失败:', err.message);
+    res.json({ rewritten: req.body?.text || '' });
   }
 });
 
@@ -478,6 +517,19 @@ app.post('/chigua-api/records', (req, res) => {
       error: '服务器内部错误',
       message: error.message
     });
+  }
+});
+
+// What's up! 反应
+app.post('/chigua-api/records/:id/whatsup', (req, res) => {
+  try {
+    const { id } = req.params;
+    const success = whatsUpRecord(id);
+    if (!success) return res.status(404).json({ error: '未找到该记录' });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('WhatsUp 失败:', error);
+    res.status(500).json({ error: '服务器内部错误' });
   }
 });
 

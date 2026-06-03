@@ -52,6 +52,7 @@ export function getDb() {
         price_per_jin REAL,
         is_self_split INTEGER DEFAULT 0,
         purchase_location TEXT,
+        whats_up INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -81,6 +82,7 @@ export function getDb() {
       'ALTER TABLE watermelon_records ADD COLUMN price_per_jin REAL',
       'ALTER TABLE watermelon_records ADD COLUMN is_self_split INTEGER DEFAULT 0',
       'ALTER TABLE watermelon_records ADD COLUMN purchase_location TEXT',
+      'ALTER TABLE watermelon_records ADD COLUMN whats_up INTEGER DEFAULT 0',
     ];
     for (const sql of newCols) {
       try { db.exec(sql); } catch (_) { /* 列已存在则跳过 */ }
@@ -101,8 +103,8 @@ export function saveRecord(record) {
     INSERT OR REPLACE INTO watermelon_records
     (id, name, sound_score, look_score, overall_score, frequency, stripe_contrast,
      greenness, ripeness_status, rated_stars, message, timestamp, photo_url, likes,
-     location, mood, price_per_jin, is_self_split, purchase_location)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     location, mood, price_per_jin, is_self_split, purchase_location, whats_up)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -124,7 +126,8 @@ export function saveRecord(record) {
     record.mood || null,
     record.pricePerJin ?? null,
     record.isSelfSplit ? 1 : 0,
-    record.purchaseLocation || null
+    record.purchaseLocation || null,
+    record.whatsUp || 0
   );
 
   return record.id;
@@ -194,8 +197,19 @@ export function getRecordById(id) {
     mood: row.mood,
     pricePerJin: row.price_per_jin ?? undefined,
     isSelfSplit: row.is_self_split === 1,
-    purchaseLocation: row.purchase_location || undefined
+    purchaseLocation: row.purchase_location || undefined,
+    whatsUp: row.whats_up || 0
   };
+}
+
+/**
+ * What's up! 反应
+ */
+export function whatsUpRecord(id) {
+  const db = getDb();
+  const stmt = db.prepare('UPDATE watermelon_records SET whats_up = whats_up + 1 WHERE id = ?');
+  const result = stmt.run(id);
+  return result.changes > 0;
 }
 
 /**

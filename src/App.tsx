@@ -48,6 +48,7 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
     timestamp: Date.now() - 3600000 * 4,
     photoUrl: '',
     likes: 238,
+    whatsUp: 15,
     location: '📍 北京·庞各庄的甜甜瓜田',
     mood: '❤️ 元气脆甜心情',
     pricePerJin: 2.5,
@@ -69,6 +70,7 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
     timestamp: Date.now() - 3600000 * 12,
     photoUrl: '',
     likes: 182,
+    whatsUp: 42,
     location: '📍 隔壁超市特价区·避坑现场',
     mood: '🟢 青涩迷茫心境',
     pricePerJin: 1.8,
@@ -90,6 +92,7 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
     timestamp: Date.now() - 3600000 * 24,
     photoUrl: '',
     likes: 165,
+    whatsUp: 8,
     location: '📍 新疆·哈密葡萄沙地的甜甜瓜田',
     mood: '🧘 佛系看淡心境',
     pricePerJin: 1.5,
@@ -153,6 +156,7 @@ export default function App() {
   const [purchaseLocation, setPurchaseLocation] = useState<string>('');
   const [marketIndex, setMarketIndex] = useState<MarketIndex | null>(null);
   const [showMarketPanel, setShowMarketPanel] = useState<boolean>(true);
+  const [isRewriting, setIsRewriting] = useState<boolean>(false);
 
   // Cooldown & Melon Client Passport states (Anti-Spam security)
   const [melonPassport, setMelonPassport] = useState<string>('');
@@ -404,6 +408,29 @@ export default function App() {
     } catch (err) {
       console.warn('[Market] 行情获取失败:', err);
     }
+  };
+
+  // 华强语气改写
+  const handleHuaqiangRewrite = async () => {
+    if (!customComment.trim()) return;
+    setIsRewriting(true);
+    try {
+      const res = await fetch('/chigua-api/huaqiang-rewrite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-shared-secret': import.meta.env.VITE_SHARED_SECRET || '' },
+        body: JSON.stringify({ text: customComment.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.rewritten && data.rewritten !== customComment.trim()) {
+          setCustomComment(data.rewritten);
+          gameAudio.playPop();
+        }
+      }
+    } catch (err) {
+      console.warn('[Huaqiang] 改写失败:', err);
+    }
+    setIsRewriting(false);
   };
 
   // Sync state to local storage + server when changed
@@ -835,6 +862,18 @@ export default function App() {
     gameAudio.playPop();
   };
 
+  // --- What's up! reaction ---
+  const handleWhatsUp = (id: string) => {
+    gameAudio.playPop();
+    const updated = records.map(r => {
+      if (r.id === id) return { ...r, whatsUp: (r.whatsUp || 0) + 1 };
+      return r;
+    });
+    saveRecordsToStorage(updated);
+    fetch(`/chigua-api/records/${id}/whatsup`, { method: 'POST' })
+      .catch(err => console.warn('[WhatsUp] 同步失败:', err));
+  };
+
   // --- Like a Watermelon post inside SquareFeed ---
   const handleLikeRecord = (id: string) => {
     gameAudio.playPop();
@@ -910,6 +949,7 @@ export default function App() {
       timestamp: Date.now(),
       photoUrl: finalPhoto,
       likes: 0,
+      whatsUp: 0,
       location: customLocation.trim() || '📍 秘密吃瓜据点',
       mood: customMood,
       // 华强买瓜：价格行情
@@ -1597,6 +1637,16 @@ export default function App() {
                           className="w-full bg-white border-2 border-emerald-950 rounded-xl p-3 text-xs focus:ring-0 focus:border-rose-500 leading-relaxed font-bold text-emerald-950"
                           placeholder="写下你吃瓜的喜怒哀乐..."
                         />
+                        <div className="flex justify-end mt-1">
+                          <button
+                            type="button"
+                            onClick={handleHuaqiangRewrite}
+                            disabled={isRewriting || !customComment.trim()}
+                            className="text-[10px] font-black text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 px-2.5 py-1 rounded-lg transition-all disabled:opacity-40"
+                          >
+                            {isRewriting ? '🔫 华强正在帮你凶一个...' : '🔫 华强化一下'}
+                          </button>
+                        </div>
                       </div>
 
                       {/* Location — GPS 自动定位 */}
@@ -1910,9 +1960,9 @@ export default function App() {
                           <p className="text-[8px] text-emerald-600">{marketIndex.rawRate > 30 ? '⚠️ 避坑预警' : '还行'}</p>
                         </div>
                         <div className="bg-white border-2 border-emerald-950 rounded-xl p-2.5 text-center">
-                          <p className="text-[9px] font-bold text-emerald-700">劈瓜勇士</p>
-                          <p className="text-lg font-black text-rose-500">{marketIndex.selfSplitRate}%</p>
-                          <p className="text-[8px] text-emerald-600">自己动刀的！🔪</p>
+                          <p className="text-[9px] font-bold text-emerald-700">🔪 今日萨日朗</p>
+                          <p className="text-lg font-black text-rose-500">{Math.round(marketIndex.totalRecords * marketIndex.selfSplitRate / 100)}<span className="text-xs text-emerald-600">人</span></p>
+                          <p className="text-[8px] text-emerald-600">自己劈瓜！萨日朗～</p>
                         </div>
                       </div>
                       <div className="bg-white border-2 border-dashed border-emerald-950/30 rounded-xl p-3 text-center">
@@ -1947,7 +1997,7 @@ export default function App() {
               )}
 
               {/* Feed List rendered natively */}
-              <SquareFeed records={records} onLike={handleLikeRecord} />
+              <SquareFeed records={records} onLike={handleLikeRecord} onWhatsUp={handleWhatsUp} />
             </motion.div>
           )}
         </AnimatePresence>

@@ -6,9 +6,10 @@ import { motion } from 'motion/react';
 interface SquareFeedProps {
   records: WatermelonRecord[];
   onLike: (id: string) => void;
+  onWhatsUp: (id: string) => void;
 }
 
-export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike }) => {
+export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhatsUp }) => {
   const [activeTab, setActiveTab] = useState<'all' | 'leaderboard'>('all');
   const [showSecurityLab, setShowSecurityLab] = useState<boolean>(false);
 
@@ -238,14 +239,22 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike }) => {
                 <span className="text-[11px] font-bold text-emerald-800">
                   🍉 评分: <span className="text-rose-600 font-extrabold text-sm">{item.ratedStars}颗星</span>
                 </span>
-                
-                <button
-                  onClick={() => onLike(item.id)}
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => onWhatsUp(item.id)}
+                    className="flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 border-2 border-amber-400 text-amber-700 font-extrabold text-[10px] rounded-xl transition-all active:scale-95 shadow-[1px_1px_0px_0px_#d97706]"
+                  >
+                    🤨 {item.whatsUp || 0}
+                  </button>
+                  <button
+                    onClick={() => onLike(item.id)}
                   className="flex items-center gap-1.5 px-3 py-1 bg-rose-50 hover:bg-rose-100 border-2 border-rose-900 text-rose-700 hover:text-rose-800 font-extrabold text-xs rounded-xl transition-all duration-200 active:scale-95 shadow-[1.5px_1.5px_0px_0px_#9b1c1c]"
                 >
                   <ThumbsUp size={12} className="fill-rose-100 hover:fill-rose-200" />
                   赞瓜度 {item.likes}
                 </button>
+                </div>
               </div>
             </motion.div>
           ))}
