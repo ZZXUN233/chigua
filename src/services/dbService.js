@@ -53,6 +53,7 @@ export function getDb() {
         is_self_split INTEGER DEFAULT 0,
         purchase_location TEXT,
         whats_up INTEGER DEFAULT 0,
+        price_disputes INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -83,6 +84,7 @@ export function getDb() {
       'ALTER TABLE watermelon_records ADD COLUMN is_self_split INTEGER DEFAULT 0',
       'ALTER TABLE watermelon_records ADD COLUMN purchase_location TEXT',
       'ALTER TABLE watermelon_records ADD COLUMN whats_up INTEGER DEFAULT 0',
+      'ALTER TABLE watermelon_records ADD COLUMN price_disputes INTEGER DEFAULT 0',
     ];
     for (const sql of newCols) {
       try { db.exec(sql); } catch (_) { /* 列已存在则跳过 */ }
@@ -103,8 +105,8 @@ export function saveRecord(record) {
     INSERT OR REPLACE INTO watermelon_records
     (id, name, sound_score, look_score, overall_score, frequency, stripe_contrast,
      greenness, ripeness_status, rated_stars, message, timestamp, photo_url, likes,
-     location, mood, price_per_jin, is_self_split, purchase_location, whats_up)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     location, mood, price_per_jin, is_self_split, purchase_location, whats_up, price_disputes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -127,7 +129,8 @@ export function saveRecord(record) {
     record.pricePerJin ?? null,
     record.isSelfSplit ? 1 : 0,
     record.purchaseLocation || null,
-    record.whatsUp || 0
+    record.whatsUp || 0,
+    record.priceDisputes || 0
   );
 
   return record.id;
@@ -198,8 +201,19 @@ export function getRecordById(id) {
     pricePerJin: row.price_per_jin ?? undefined,
     isSelfSplit: row.is_self_split === 1,
     purchaseLocation: row.purchase_location || undefined,
-    whatsUp: row.whats_up || 0
+    whatsUp: row.whats_up || 0,
+    priceDisputes: row.price_disputes || 0
   };
+}
+
+/**
+ * 踩价（降低该报价在行情中的权重）
+ */
+export function disputePriceRecord(id) {
+  const db = getDb();
+  const stmt = db.prepare('UPDATE watermelon_records SET price_disputes = price_disputes + 1 WHERE id = ?');
+  const result = stmt.run(id);
+  return result.changes > 0;
 }
 
 /**
@@ -382,6 +396,21 @@ export function getMarketHistory(days = 7) {
  */
 export function getMarketIndex() {
   const db = getDb();
+  // 加权均价：每条报价权重 = max(0.2, 1 - price_disputes * 0.2)
+  const priceRows = db.prepare(`
+    SELECT price_per_jin, price_disputes FROM watermelon_records
+    WHERE price_per_jin IS NOT NULL AND price_per_jin > 0
+  `).all();
+
+  let weightedSum = 0;
+  let totalWeight = 0;
+  for (const r of priceRows) {
+    const w = Math.max(0.2, 1 - (r.price_disputes || 0) * 0.2);
+    weightedSum += r.price_per_jin * w;
+    totalWeight += w;
+  }
+  const weightedAvg = totalWeight > 0 ? weightedSum / totalWeight : null;
+
   const row = db.prepare(`
     SELECT
       COUNT(*) as total,
@@ -417,7 +446,7 @@ export function getMarketIndex() {
   }));
 
   return {
-    avgPrice: priceReports > 0 ? Math.round(row.avg_price * 100) / 100 : null,
+    avgPrice: totalWeight > 0 ? Math.round(weightedAvg * 100) / 100 : null,
     totalPriceReports: priceReports,
     totalRecords: total,
     rawRate: total > 0 ? (row.raw_count || 0) / total : 0,

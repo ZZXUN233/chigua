@@ -7,9 +7,10 @@ interface SquareFeedProps {
   records: WatermelonRecord[];
   onLike: (id: string) => void;
   onWhatsUp: (id: string) => void;
+  onDisputePrice: (id: string) => void;
 }
 
-export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhatsUp }) => {
+export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhatsUp, onDisputePrice }) => {
   const [activeTab, setActiveTab] = useState<'all' | 'leaderboard'>('all');
   const [showSecurityLab, setShowSecurityLab] = useState<boolean>(false);
 
@@ -241,6 +242,15 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhats
                 </span>
 
                 <div className="flex items-center gap-1.5">
+                  {item.pricePerJin != null && (
+                    <button
+                      onClick={() => onDisputePrice(item.id)}
+                      className="flex items-center gap-1 px-2 py-1 bg-slate-50 hover:bg-slate-100 border-2 border-slate-300 text-slate-500 font-extrabold text-[10px] rounded-xl transition-all active:scale-95 shadow-[1px_1px_0px_0px_#94a3b8]"
+                      title="这价格不对！踩一下降低它在行情里的权重"
+                    >
+                      🙅 {item.priceDisputes || 0}
+                    </button>
+                  )}
                   <button
                     onClick={() => onWhatsUp(item.id)}
                     className="flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 border-2 border-amber-400 text-amber-700 font-extrabold text-[10px] rounded-xl transition-all active:scale-95 shadow-[1px_1px_0px_0px_#d97706]"

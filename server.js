@@ -9,6 +9,7 @@ import {
   getRecordById,
   likeRecord,
   whatsUpRecord,
+  disputePriceRecord,
   deleteRecord,
   getRecordCount,
   getPopularRecords,
@@ -16,7 +17,8 @@ import {
   getMarketIndex,
   saveDailySnapshot,
   getMarketHistory,
-  getPriceHistory
+  getPriceHistory,
+  getDb
 } from './src/services/dbService.js';
 
 // 加载环境变量
@@ -505,6 +507,48 @@ app.post('/chigua-api/records', (req, res) => {
       purchaseLocation: record.purchaseLocation || null
     };
 
+    // --- L1 统计风控：价格校验 ---
+    if (newRecord.pricePerJin != null) {
+      // 硬限制：瓜价不能离谱
+      if (newRecord.pricePerJin <= 0 || newRecord.pricePerJin > 30) {
+        console.warn(`[AntiFraud] 价格异常拒绝: ¥${newRecord.pricePerJin}/斤 (id=${newRecord.id})`);
+        newRecord.pricePerJin = null; // 丢弃离谱价格，其他字段仍正常保存
+      } else {
+        // 同城市均价偏离检测（3σ 外标记但不禁用）
+        try {
+          const recent = getDb().prepare(`
+            SELECT AVG(price_per_jin) as avg_p, COUNT(*) as cnt
+            FROM watermelon_records
+            WHERE purchase_location = ? AND price_per_jin IS NOT NULL AND price_per_jin > 0
+          `).get(newRecord.purchaseLocation || '');
+
+          if (recent && recent.cnt >= 3 && recent.avg_p) {
+            // 简易方差计算：用城市已有数据的标准差
+            const devs = getDb().prepare(`
+              SELECT price_per_jin FROM watermelon_records
+              WHERE purchase_location = ? AND price_per_jin IS NOT NULL AND price_per_jin > 0
+            `).all(newRecord.purchaseLocation);
+
+            if (devs.length >= 3) {
+              const prices = devs.map(r => r.price_per_jin);
+              const mean = prices.reduce((a, b) => a + b, 0) / prices.length;
+              const variance = prices.reduce((s, p) => s + (p - mean) ** 2, 0) / prices.length;
+              const stdDev = Math.sqrt(variance);
+              const deviation = Math.abs(newRecord.pricePerJin - mean);
+
+              if (stdDev > 0 && deviation > 3 * stdDev) {
+                console.warn(`[AntiFraud] 价格偏离城市均值>3σ: ¥${newRecord.pricePerJin}/斤 vs 均值¥${mean.toFixed(1)}±${stdDev.toFixed(1)} (${newRecord.purchaseLocation})`);
+                // 标记但不丢弃——可能是真实低价/高价
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[AntiFraud] 偏离检测异常:', e.message);
+        }
+      }
+    }
+    // --- L1 风控结束 ---
+
     saveRecord(newRecord);
 
     res.status(201).json({
@@ -529,6 +573,19 @@ app.post('/chigua-api/records/:id/whatsup', (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('WhatsUp 失败:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 踩价（降低报价行情权重）
+app.post('/chigua-api/records/:id/dispute-price', (req, res) => {
+  try {
+    const { id } = req.params;
+    const success = disputePriceRecord(id);
+    if (!success) return res.status(404).json({ error: '未找到该记录' });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Dispute 失败:', error);
     res.status(500).json({ error: '服务器内部错误' });
   }
 });

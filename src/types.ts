@@ -48,6 +48,7 @@ export interface WatermelonRecord {
   photoUrl?: string; // base64 representation of scanned image, or watermelon avatar
   likes: number;
   whatsUp: number;              // What's up! 🤨 反应数
+  priceDisputes: number;         // 🙅 踩价数（降低该报价在行情中的权重）
   location?: string;
   mood?: string;
   // 华强买瓜：价格行情

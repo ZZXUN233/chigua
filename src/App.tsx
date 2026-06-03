@@ -49,6 +49,7 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
     photoUrl: '',
     likes: 238,
     whatsUp: 15,
+    priceDisputes: 2,
     location: '📍 北京·庞各庄的甜甜瓜田',
     mood: '❤️ 元气脆甜心情',
     pricePerJin: 2.5,
@@ -71,6 +72,7 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
     photoUrl: '',
     likes: 182,
     whatsUp: 42,
+    priceDisputes: 5,
     location: '📍 隔壁超市特价区·避坑现场',
     mood: '🟢 青涩迷茫心境',
     pricePerJin: 1.8,
@@ -93,6 +95,7 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
     photoUrl: '',
     likes: 165,
     whatsUp: 8,
+    priceDisputes: 1,
     location: '📍 新疆·哈密葡萄沙地的甜甜瓜田',
     mood: '🧘 佛系看淡心境',
     pricePerJin: 1.5,
@@ -284,13 +287,28 @@ export default function App() {
     // Generate slice
     setSlicedMelonIcon(getSlicedWatermelonImageURL());
 
-    // Generate or fetch Melon Passport (Client Session identity badge)
+    // Generate or fetch Melon Passport (设备指纹 + localStorage 双保险)
     let passport = localStorage.getItem('melon_passport_id');
     if (!passport) {
+      // 设备指纹：跨浏览器也能保持一致的 ID
+      const fp = [
+        navigator.platform || 'unknown',
+        screen.width, screen.height, screen.colorDepth,
+        navigator.language,
+        Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+      ].join('|');
+      // 简单哈希 → 4 位 hex
+      let hash = 0;
+      for (let i = 0; i < fp.length; i++) {
+        hash = ((hash << 5) - hash) + fp.charCodeAt(i);
+        hash |= 0;
+      }
+      const fpCode = Math.abs(hash % 10000).toString().padStart(4, '0');
+
       const suffixes = ['吃瓜群众', '庞各庄沙瓤派', '冰镇碎碎冰尊者', '哈密沙漠瓜侠', '白瓤西瓜避坑王', '五彩甜雪糕使者', '消暑科学鉴瓜师'];
-      const randomSuffix = suffixes[Math.floor(Math.random() * suffixes.length)];
-      const randomNum = Math.floor(1000 + Math.random() * 9000);
-      passport = `🍉 ${randomSuffix}_#${randomNum}`;
+      // 同一设备始终选同一个后缀
+      const suffixIdx = Math.abs(hash % suffixes.length);
+      passport = `🍉 ${suffixes[suffixIdx]}_#${fpCode}`;
       localStorage.setItem('melon_passport_id', passport);
     }
     setMelonPassport(passport);
@@ -874,6 +892,19 @@ export default function App() {
       .catch(err => console.warn('[WhatsUp] 同步失败:', err));
   };
 
+  // --- 踩价（降低报价在行情中的权重） ---
+  const handleDisputePrice = (id: string) => {
+    gameAudio.playPop();
+    const updated = records.map(r => {
+      if (r.id === id) return { ...r, priceDisputes: (r.priceDisputes || 0) + 1 };
+      return r;
+    });
+    saveRecordsToStorage(updated);
+    fetch(`/chigua-api/records/${id}/dispute-price`, { method: 'POST' })
+      .catch(err => console.warn('[Dispute] 同步失败:', err));
+    fetchMarketIndex(); // 刷新行情
+  };
+
   // --- Like a Watermelon post inside SquareFeed ---
   const handleLikeRecord = (id: string) => {
     gameAudio.playPop();
@@ -950,6 +981,7 @@ export default function App() {
       photoUrl: finalPhoto,
       likes: 0,
       whatsUp: 0,
+      priceDisputes: 0,
       location: customLocation.trim() || '📍 秘密吃瓜据点',
       mood: customMood,
       // 华强买瓜：价格行情
@@ -1715,19 +1747,16 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* 在哪买的 + 谁劈的 */}
+                        {/* 在哪买的（GPS自动） + 谁劈的 */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="text-[10px] font-black text-emerald-900 flex items-center gap-1 mb-1">
                               🌍 在哪买的
                             </label>
-                            <input
-                              type="text"
-                              value={purchaseLocation}
-                              onChange={e => setPurchaseLocation(e.target.value)}
-                              placeholder="街角水果摊 / 超市 / 菜市场"
-                              className="w-full px-3 py-2 text-xs font-bold rounded-xl border-2 border-emerald-950 bg-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
-                            />
+                            <div className="w-full px-3 py-2 text-xs font-bold rounded-xl border-2 border-emerald-950/30 bg-emerald-50/50 text-emerald-800 flex items-center gap-1.5">
+                              <span className="text-[11px]">📍</span>
+                              <span className="truncate">{purchaseLocation || '先去上面点定位～'}</span>
+                            </div>
                           </div>
                           {/* 劈瓜选择：自己劈 vs 摊主劈 */}
                           <div>
@@ -1970,6 +1999,11 @@ export default function App() {
                           💬 华强说：<span className="text-rose-600 italic">"{marketIndex.huaqiangComment}"</span>
                         </p>
                       </div>
+                      {marketIndex.totalPriceReports > 0 && (
+                        <p className="text-[9px] text-emerald-500/70 text-center mt-1">
+                          🛡️ 以上数据来自 {marketIndex.totalPriceReports} 位瓜友的真实报价 · 离谱价格自动过滤 · 众人吃瓜众人信
+                        </p>
+                      )}
                       {marketIndex.cityStats && marketIndex.cityStats.length > 0 && (
                         <div className="bg-white border-2 border-emerald-950 rounded-xl p-3">
                           <p className="text-[10px] font-black text-emerald-950 mb-2">🏙️ 各城市瓜价一览</p>
@@ -1997,7 +2031,7 @@ export default function App() {
               )}
 
               {/* Feed List rendered natively */}
-              <SquareFeed records={records} onLike={handleLikeRecord} onWhatsUp={handleWhatsUp} />
+              <SquareFeed records={records} onLike={handleLikeRecord} onWhatsUp={handleWhatsUp} onDisputePrice={handleDisputePrice} />
             </motion.div>
           )}
         </AnimatePresence>
