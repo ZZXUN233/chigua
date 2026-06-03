@@ -20,7 +20,10 @@ export async function checkContent(text: string): Promise<ModerationResult> {
   try {
     const res = await fetch('/chigua-api/moderate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-shared-secret': import.meta.env.VITE_SHARED_SECRET || '',
+      },
       body: JSON.stringify({ text: text.trim() }),
       signal: AbortSignal.timeout(5000),
     });

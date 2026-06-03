@@ -231,5 +231,15 @@ export function getPopularRecords(limit = 20) {
   }));
 }
 
+/**
+ * 清空所有西瓜记录（每日凌晨重置用）
+ */
+export function clearAllRecords() {
+  const db = getDb();
+  const result = db.exec('DELETE FROM watermelon_records');
+  console.log(`[DB] 已清空所有西瓜记录`);
+  return result;
+}
+
 // 导出数据库实例（用于服务器启动时检查）
 export { db };

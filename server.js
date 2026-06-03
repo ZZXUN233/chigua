@@ -10,7 +10,8 @@ import {
   likeRecord,
   deleteRecord,
   getRecordCount,
-  getPopularRecords
+  getPopularRecords,
+  clearAllRecords
 } from './src/services/dbService.js';
 
 // 加载环境变量
@@ -27,6 +28,83 @@ const __dirname = path.dirname(__filename);
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // 允许较大的 base64 图片数据
 
+// --- 安全中间件 ---
+
+// Shared secret 鉴权（保护 AI API 端点不被外部滥用）
+const requireSharedSecret = (req, res, next) => {
+  const expected = process.env.SHARED_SECRET;
+  // 未配置时 fail-open（开发环境兼容）
+  if (!expected || expected === 'your-shared-secret-here') {
+    return next();
+  }
+  const secret = req.headers['x-shared-secret'];
+  if (secret !== expected) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  next();
+};
+
+// 简易内存频率限制（防止 AI API 被刷爆）
+const rateLimitMap = new Map();
+function aiRateLimit(req, res, next) {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const key = `rate:${ip}:${req.path}`;
+  const now = Date.now();
+  const windowMs = 60_000;   // 1 分钟窗口
+  const maxRequests = 10;    // 最多 10 次/分钟
+
+  const entry = rateLimitMap.get(key);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(key, { count: 1, resetAt: now + windowMs });
+    return next();
+  }
+
+  entry.count++;
+  if (entry.count > maxRequests) {
+    return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
+  }
+  next();
+}
+
+// 定期清理 rate limit map，防止内存泄漏
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitMap) {
+    if (now > entry.resetAt) rateLimitMap.delete(key);
+  }
+}, 300_000); // 每 5 分钟清理一次
+
+// --- 每日凌晨 1:00 清空 SQLite 数据（不吃隔夜瓜） ---
+function scheduleDailyReset() {
+  const now = new Date();
+  const next1AM = new Date(now);
+  next1AM.setDate(next1AM.getDate() + 1);
+  next1AM.setHours(1, 0, 0, 0);
+  const msUntil1AM = next1AM.getTime() - now.getTime();
+
+  console.log(`[Reset] 距离下次凌晨 1:00 清空数据还有 ${Math.round(msUntil1AM / 3600000)} 小时`);
+
+  setTimeout(() => {
+    console.log('[Reset] 🕐 凌晨 1:00 — 不吃隔夜瓜！清除当日晒瓜数据');
+    try {
+      clearAllRecords();
+      console.log('[Reset] ✅ SQLite 数据已清空，新一天的吃瓜开始！');
+    } catch (err) {
+      console.error('[Reset] 清空数据失败:', err.message);
+    }
+    // 之后每 24 小时执行一次
+    setInterval(() => {
+      console.log('[Reset] 🕐 凌晨 1:00 — 不吃隔夜瓜！清除当日晒瓜数据');
+      try {
+        clearAllRecords();
+        console.log('[Reset] ✅ SQLite 数据已清空，新一天的吃瓜开始！');
+      } catch (err) {
+        console.error('[Reset] 清空数据失败:', err.message);
+      }
+    }, 24 * 60 * 60 * 1000);
+  }, msUntil1AM);
+}
+
 // API 路由（使用 /chigua-api 前缀）
 
 // 健康检查
@@ -39,7 +117,7 @@ app.get('/chigua-api/health', (req, res) => {
 });
 
 // 内容审核（对接 DeepSeek API）
-app.post('/chigua-api/moderate', async (req, res) => {
+app.post('/chigua-api/moderate', requireSharedSecret, aiRateLimit, async (req, res) => {
   try {
     const { text } = req.body;
 
@@ -102,7 +180,13 @@ app.post('/chigua-api/moderate', async (req, res) => {
       return res.json({ flagged: false, categories: [], suggestion: null });
     }
 
-    const parsed = JSON.parse(content);
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (parseErr) {
+      console.error('[Moderate] JSON 解析失败:', parseErr.message);
+      return res.json({ flagged: false, categories: [], suggestion: null });
+    }
     res.json({
       flagged: parsed.flagged ?? false,
       categories: Array.isArray(parsed.categories) ? parsed.categories : [],
@@ -112,6 +196,106 @@ app.post('/chigua-api/moderate', async (req, res) => {
     console.error('[Moderate] 审核请求失败:', error.message);
     // Fail open — 任何异常都允许发布
     res.json({ flagged: false, categories: [], suggestion: null });
+  }
+});
+
+// 西瓜检测（对接 DeepSeek Vision API）
+app.post('/chigua-api/detect-watermelon', requireSharedSecret, aiRateLimit, async (req, res) => {
+  try {
+    const { imageBase64 } = req.body;
+
+    if (!imageBase64 || typeof imageBase64 !== 'string') {
+      return res.status(400).json({ error: '请提供 base64 编码的图片' });
+    }
+
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    if (!apiKey || apiKey === 'your-deepseek-api-key-here') {
+      console.warn('[Detect] DEEPSEEK_API_KEY 未配置，跳过检测');
+      return res.json({ hasWatermelon: true, confidence: 'unknown', description: 'API key 未配置' });
+    }
+
+    // Ensure the base64 data has a proper data URI prefix
+    const imageUrl = imageBase64.startsWith('data:')
+      ? imageBase64
+      : `data:image/jpeg;base64,${imageBase64}`;
+
+    const systemPrompt = `你是一个西瓜检测助手。你的任务是判断用户上传的图片中是否有一个完整的西瓜。
+
+判断标准：
+- 整个圆形或椭圆形的西瓜（有或没有切开）→ 有西瓜
+- 切开的西瓜块、西瓜片 → 有西瓜
+- 被手拿着或放在桌上的西瓜 → 有西瓜
+- 只有西瓜皮、西瓜籽、没有西瓜的画面 → 没有西瓜
+- 其他水果（苹果、橙子等）→ 没有西瓜
+- 没有人或物体的空镜 → 没有西瓜
+- 纯色背景、模糊画面 → 没有西瓜
+
+请以 JSON 格式返回检测结果：
+{
+  "hasWatermelon": true或false,
+  "confidence": "high"、"medium" 或 "low",
+  "description": "简短中文描述画面中看到的内容（20字以内）"
+}`;
+
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image_url',
+                image_url: { url: imageUrl },
+              },
+              {
+                type: 'text',
+                text: '请判断这张图片中是否有一个西瓜。',
+              },
+            ],
+          },
+        ],
+        temperature: 0.1,
+        max_tokens: 200,
+        response_format: { type: 'json_object' },
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      console.error('[Detect] DeepSeek API 返回错误:', response.status);
+      return res.json({ hasWatermelon: true, confidence: 'unknown', description: 'API 异常' });
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      console.error('[Detect] DeepSeek 响应格式异常');
+      return res.json({ hasWatermelon: true, confidence: 'unknown', description: '响应异常' });
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (parseErr) {
+      console.error('[Detect] JSON 解析失败:', parseErr.message);
+      return res.json({ hasWatermelon: true, confidence: 'unknown', description: 'JSON 异常' });
+    }
+    res.json({
+      hasWatermelon: parsed.hasWatermelon ?? true,
+      confidence: parsed.confidence ?? 'unknown',
+      description: parsed.description ?? '',
+    });
+  } catch (error) {
+    console.error('[Detect] 检测请求失败:', error.message);
+    // Fail open — 任何异常都允许继续拍照
+    res.json({ hasWatermelon: true, confidence: 'unknown', description: '网络异常' });
   }
 });
 
@@ -285,12 +469,16 @@ app.get(/^\/chigua(?:\/(?!.*\.[a-z0-9]+$).*)?$/i, (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
+// 启动每日凌晨数据清空
+scheduleDailyReset();
+
 // 启动服务器
 app.listen(PORT, () => {
   console.log(`🍉 吃瓜大师全栈服务器运行在 http://localhost:${PORT}`);
   console.log(`📝 前端应用: http://localhost:${PORT}/chigua`);
   console.log(`🔧 健康检查: http://localhost:${PORT}/chigua-api/health`);
   console.log(`🛡️ 内容审核: POST http://localhost:${PORT}/chigua-api/moderate`);
+  console.log(`🔍 西瓜检测: POST http://localhost:${PORT}/chigua-api/detect-watermelon`);
   console.log(`📊 获取记录: GET http://localhost:${PORT}/chigua-api/records`);
   console.log(`🔥 热门记录: GET http://localhost:${PORT}/chigua-api/records/popular`);
   console.log(`➕ 创建记录: POST http://localhost:${PORT}/chigua-api/records`);

@@ -27,13 +27,14 @@ import { gameAudio } from './utils/audioSynth';
 import { drawWatermelonToCanvas, getWatermelonImageURL, getSlicedWatermelonImageURL } from './utils/watermelonDrawer';
 import { MODERATION_POLICY } from './utils/moderationPolicy';
 import { useModeration, checkContent } from './utils/moderationApi';
+import { detectWatermelon } from './utils/detectionApi';
 import { convertToPixelArt } from './utils/pixelArtConverter';
 
 // Seed community data
 const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
   {
     id: 'seed-1',
-    name: '王大爷买的超级母西瓜',
+    name: '王大爷挑的梦中情瓜',
     soundScore: 95,
     lookScore: 98,
     overallScore: 96,
@@ -42,16 +43,16 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
     greenness: 0.75,
     ripenessStatus: 'ripe',
     ratedStars: 5,
-    message: '老伴夸我会挑瓜！敲起来声音咚咚的，清甜多汁，绝对是西瓜界的吴彦祖！',
-    timestamp: Date.now() - 3600000 * 4, // 4 hours ago
-    photoUrl: '', // Will populate with procedural Ripe URL in effect
+    message: '老伴夸我会挑瓜！敲起来咚咚响，一刀下去汁水四溅，甜到心里去了～夏天就该这样！🍉',
+    timestamp: Date.now() - 3600000 * 4,
+    photoUrl: '',
     likes: 238,
-    location: '📍 北京大兴庞各庄宫廷贡瓜区',
+    location: '📍 北京·庞各庄的甜甜瓜田',
     mood: '❤️ 元气脆甜心情'
   },
   {
     id: 'seed-2',
-    name: '隔壁室友抢到的"白瓤南瓜"',
+    name: '室友手滑挑到的白瓤小可怜',
     soundScore: 20,
     lookScore: 35,
     overallScore: 26,
@@ -60,16 +61,16 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
     greenness: 0.4,
     ripenessStatus: 'unripe',
     ratedStars: 1,
-    message: '去水果摊挑了个皮发白的，敲着像敲塑料瓶。切开果然傻眼了，连个籽都没有，甚至有点酸！气哭！',
-    timestamp: Date.now() - 3600000 * 12, // 12 hours ago
-    photoUrl: '', // Will populate with procedural Unripe URL in effect
+    message: '水果摊上被颜值迷惑了！敲起来像塑料瓶，切开白白的连籽都没有……酸得我龇牙咧嘴，翻车现场！😭',
+    timestamp: Date.now() - 3600000 * 12,
+    photoUrl: '',
     likes: 182,
-    location: '📍 隔壁超市特价区 (避坑现场)',
+    location: '📍 隔壁超市特价区·避坑现场',
     mood: '🟢 青涩迷茫心境'
   },
   {
     id: 'seed-3',
-    name: '外卖盲开的"沙瓤爆浆王"',
+    name: '外卖盲盒开出的沙瓤惊喜',
     soundScore: 88,
     lookScore: 90,
     overallScore: 89,
@@ -78,11 +79,11 @@ const DEFAULT_COMMUNITY_MELONS: WatermelonRecord[] = [
     greenness: 0.65,
     ripenessStatus: 'overripe',
     ratedStars: 4,
-    message: '声音有点松，但是切开那个沙瓤太得劲了！水特别足，甜到喉咙，冰镇一晚简直是仙品！',
-    timestamp: Date.now() - 3600000 * 24, // 1 day ago
-    photoUrl: '', // Will populate with procedural Overripe URL in effect
+    message: '本来担心熟过了，结果切开一尝——哇！沙沙的口感超绝，冰镇一晚上甜到嗓子眼，简直是西瓜冰淇淋！🍦',
+    timestamp: Date.now() - 3600000 * 24,
+    photoUrl: '',
     likes: 165,
-    location: '📍 新疆哈密葡萄沙地瓜田',
+    location: '📍 新疆·哈密葡萄沙地的甜甜瓜田',
     mood: '🧘 佛系看淡心境'
   }
 ];
@@ -97,6 +98,7 @@ export default function App() {
   const [isListeningMic, setIsListeningMic] = useState<boolean>(false);
   const [useRealCamera, setUseRealCamera] = useState<boolean>(false);
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const [isDetectingWatermelon, setIsDetectingWatermelon] = useState<boolean>(false);
 
   // Audio Context refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -161,7 +163,7 @@ export default function App() {
 
   const handleAutoGetLocation = () => {
     if (!navigator.geolocation) {
-      alert('⚠️ 您的浏览器不支持获取地理定位！已为您自动选择特色瓜地。');
+      alert('⚠️ 哎呀，你的浏览器不支持定位功能～已帮你挑了一个甜甜的瓜地！🍉');
       return;
     }
 
@@ -169,28 +171,48 @@ export default function App() {
     gameAudio.playPop();
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         const { latitude, longitude } = position.coords;
-        const roundedLat = latitude.toFixed(2);
-        const roundedLon = longitude.toFixed(2);
-        const autoLocStr = `📍 北纬${roundedLat}°, 东经${roundedLon}° [夏日甜蜜信号]`;
-        setCustomLocation(autoLocStr);
+        // Reverse geocode to city name (free OSM Nominatim, no API key needed)
+        try {
+          const geoRes = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&accept-language=zh`,
+            { signal: AbortSignal.timeout(4000) }
+          );
+          if (geoRes.ok) {
+            const geoData = await geoRes.json();
+            const city = geoData.address?.city || geoData.address?.town || geoData.address?.county || geoData.address?.state || '';
+            const province = geoData.address?.state || geoData.address?.province || '';
+            const locationName = city
+              ? `📍 ${province ? province.replace(/省|市$/, '') + '·' : ''}${city}的甜甜瓜田`
+              : `📍 北纬${latitude.toFixed(1)}°附近的秘密瓜地`;
+            setCustomLocation(locationName);
+            setLocationMethod('automatic');
+            setIsFetchingLocation(false);
+            return;
+          }
+        } catch (geoErr) {
+          console.warn('[Geo] 反向地理编码失败，使用模糊坐标:', geoErr);
+        }
+        // Fallback: fuzzy coordinates
+        const fuzzyLocStr = `📍 北纬${latitude.toFixed(1)}°附近的秘密瓜地`;
+        setCustomLocation(fuzzyLocStr);
         setLocationMethod('automatic');
         setIsFetchingLocation(false);
       },
       (error) => {
         console.error('Error getting location', error);
         setIsFetchingLocation(false);
-        let errorMsg = '无法获取您的定位，可能未授权或由于嵌入环境原因限制。';
+        let errorMsg = '定位好像出了点小问题～';
         if (error.code === error.PERMISSION_DENIED) {
-          errorMsg = '您拒绝了定位授权申请。';
+          errorMsg = '你害羞地拒绝了定位邀请～';
         } else if (error.code === error.POSITION_UNAVAILABLE) {
-          errorMsg = '定位信息不可用。';
+          errorMsg = '天空云层太厚，暂时找不到你的瓜地～';
         } else if (error.code === error.TIMEOUT) {
-          errorMsg = '定位请求超时。';
+          errorMsg = '定位小精灵跑得有点慢～';
         }
-        alert(`💫 ${errorMsg} 已为您选择默认夏日推荐瓜地！`);
-        setCustomLocation('📍 新疆哈密葡萄沙地');
+        alert(`💫 ${errorMsg} 已经帮你选了一个甜甜的夏日瓜地！`);
+        setCustomLocation('📍 新疆哈密·葡萄沙地的甜甜瓜田');
         setLocationMethod('manual');
       },
       { enableHighAccuracy: false, timeout: 6000 }
@@ -245,6 +267,7 @@ export default function App() {
       localStorage.setItem('melon_last_reset_date', todayStr);
     }
 
+    // Step 1: Load from localStorage first (instant UI)
     if (saved && !forceReset) {
       try {
         setRecords(JSON.parse(saved));
@@ -253,15 +276,38 @@ export default function App() {
       }
     } else {
       // Reset — seed with fresh daily data
-      const fullySeeded = DEFAULT_COMMUNITY_MELONS.map(m => {
-        return {
-          ...m,
-          photoUrl: getWatermelonImageURL(m.ripenessStatus, m.name)
-        };
-      });
+      const fullySeeded = DEFAULT_COMMUNITY_MELONS.map(m => ({
+        ...m,
+        photoUrl: getWatermelonImageURL(m.ripenessStatus, m.name)
+      }));
       setRecords(fullySeeded);
       localStorage.setItem('melon_masters_records', JSON.stringify(fullySeeded));
     }
+
+    // Step 2: Fetch server records (source of truth, overrides localStorage)
+    const syncFromServer = async () => {
+      try {
+        const res = await fetch('/chigua-api/records?limit=200');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.records && data.records.length > 0) {
+            setRecords(data.records);
+            localStorage.setItem('melon_masters_records', JSON.stringify(data.records));
+          } else {
+            // Server has no records (new day!) — seed with defaults
+            const seeded = DEFAULT_COMMUNITY_MELONS.map(m => ({
+              ...m,
+              photoUrl: getWatermelonImageURL(m.ripenessStatus, m.name)
+            }));
+            setRecords(seeded);
+            localStorage.setItem('melon_masters_records', JSON.stringify(seeded));
+          }
+        }
+      } catch (err) {
+        console.warn('[Sync] 服务器同步失败，使用本地数据:', err);
+      }
+    };
+    syncFromServer();
 
     // Calculate ms until next 1:00 AM for the auto-reset timer
     const next1AM = new Date();
@@ -274,6 +320,7 @@ export default function App() {
     setDaysRemaining(hoursLeft);
 
     const resetTimer = setTimeout(() => {
+      // Re-fetch from server after reset; seed locally as fallback
       const seeded = DEFAULT_COMMUNITY_MELONS.map(m => ({
         ...m,
         photoUrl: getWatermelonImageURL(m.ripenessStatus, m.name)
@@ -283,15 +330,25 @@ export default function App() {
       const newDateStr = getTodayStr();
       localStorage.setItem('melon_last_reset_date', newDateStr);
       setDaysRemaining(24);
+      // Also try to sync from server
+      syncFromServer();
     }, msUntilNext1AM);
 
     return () => clearTimeout(resetTimer);
   }, []);
 
-  // Sync state to local storage when changed
-  const saveRecordsToStorage = (newRecords: WatermelonRecord[]) => {
+  // Sync state to local storage + server when changed
+  const saveRecordsToStorage = (newRecords: WatermelonRecord[], newRecord?: WatermelonRecord) => {
     setRecords(newRecords);
     localStorage.setItem('melon_masters_records', JSON.stringify(newRecords));
+    // Also POST new record to server for shared community feed
+    if (newRecord) {
+      fetch('/chigua-api/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRecord),
+      }).catch(err => console.warn('[Sync] 发布同步服务器失败:', err));
+    }
   };
 
   // --- Draw the procedural watermelon inside the scan panel ---
@@ -300,7 +357,7 @@ export default function App() {
     if (canvas && !isCameraActive && !capturedPhotoUrl) {
       drawWatermelonToCanvas(canvas, waterMelonPreset, {
         showFace: true,
-        nameTag: waterMelonPreset === 'unripe' ? '生涩瓜 (铛铛响)' : waterMelonPreset === 'ripe' ? '香甜沙瓤 (咚咚响)' : '老熟瓜 (噗噗响)'
+        nameTag: waterMelonPreset === 'unripe' ? '小生瓜 (铛铛)' : waterMelonPreset === 'ripe' ? '甜沙瓤 (咚咚)' : '熟透瓜 (噗噗)'
       });
     }
   }, [waterMelonPreset, isCameraActive, capturedPhotoUrl]);
@@ -399,7 +456,7 @@ export default function App() {
 
       } catch (err) {
         console.warn('Microphone permission or hardware issue:', err);
-        alert('无法启动麦克风。程序将自动为您切换为"虚拟听声测试"，即使没有麦克风，点击按钮也有仿真声效和好玩判定哦！');
+        alert('哎呀，麦克风好像没准备好～没关系！已帮你切到"拍拍模拟器"模式，点按钮就能听到瓜瓜的声音，一样好玩哦！🎵');
         setUseRealMic(false);
       }
     }
@@ -439,6 +496,16 @@ export default function App() {
     };
   }, []);
 
+  // Attach camera stream to video element once it renders
+  useEffect(() => {
+    if (isCameraActive && localStreamRef.current && videoRef.current) {
+      videoRef.current.srcObject = localStreamRef.current;
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current?.play()?.catch(err => console.warn('Video play failed:', err));
+      };
+    }
+  }, [isCameraActive]);
+
   // --- Real Camera Stream Handlers ---
   const toggleCamera = async () => {
     if (isCameraActive) {
@@ -446,22 +513,20 @@ export default function App() {
     } else {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 400, height: 400, facingMode: 'environment' }
+          video: {
+            width: { ideal: 400 },
+            height: { ideal: 400 },
+            facingMode: { ideal: 'environment' }
+          }
         });
         localStreamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current?.play();
-          };
-        }
         setIsCameraActive(true);
         setUseRealCamera(true);
         setCapturedPhotoUrl('');
         gameAudio.playPop();
       } catch (err) {
         console.warn('Camera failed:', err);
-        alert('无法打开摄像头，将为您激活"仿真瓜田选瓜"模式，您可通过选用多种不同成色西瓜直接进行趣味测瓜。');
+        alert('哎呀，摄像头好像害羞躲起来了～已帮你切到"瓜田选瓜"模式，动动手指挑一颗可爱的小西瓜来测吧！🍉');
         setUseRealCamera(false);
       }
     }
@@ -476,9 +541,10 @@ export default function App() {
   };
 
   // --- Trigger Real Webcam Snapshot Action ---
-  const captureWebcamAndAnalyze = () => {
+  const captureWebcamAndAnalyze = async () => {
     if (!videoRef.current) return;
     try {
+      // Step 1: Capture frame to canvas
       const liveCanvas = document.createElement('canvas');
       liveCanvas.width = 400;
       liveCanvas.height = 400;
@@ -488,7 +554,29 @@ export default function App() {
       // Flip horizontal for intuitive mirror selfie feel if front camera
       ctx.drawImage(videoRef.current, 0, 0, 400, 400);
 
-      // Perform REAL canvas color analysis on the video crop!
+      // Step 2: AI watermelon detection
+      setIsDetectingWatermelon(true);
+      const base64 = liveCanvas.toDataURL('image/jpeg', 0.8);
+      const detection = await detectWatermelon(base64);
+      setIsDetectingWatermelon(false);
+
+      if (!detection.hasWatermelon) {
+        const retake = window.confirm(
+          `🔍 小精灵看了看镜头～\n\n` +
+          `它觉得画面里：${detection.description || '好像没有西瓜呢'}\n` +
+          `把握度：${detection.confidence === 'high' ? '很有把握' : detection.confidence === 'medium' ? '不太确定' : '可能看走眼了'}\n\n` +
+          `好像没看到西瓜诶～\n` +
+          `点"确定"重新拍一张，"取消"就当有瓜继续测！`
+        );
+        if (retake) {
+          // Re-open camera for retake
+          stopCamera();
+          setTimeout(() => toggleCamera(), 300);
+          return;
+        }
+      }
+
+      // Step 3: Perform REAL canvas color analysis on the video crop!
       const imgData = ctx.getImageData(50, 50, 300, 300);
       const pixels = imgData.data;
 
@@ -525,8 +613,13 @@ export default function App() {
       setDetectedContrast(rawContrast);
       setDetectedGreenness(rawG);
 
+      // Determine preliminary ripeness from actual pixel data for the pixel-art face
+      const preliminaryStatus: WatermelonStatus =
+        rawG > 0.55 && rawContrast > 0.45 ? 'ripe' :
+        rawG < 0.35 ? 'unripe' : 'overripe';
+
       // Convert to cute pixel-art watermelon (replaces raw photo storage)
-      const pixelArtUrl = convertToPixelArt(liveCanvas, testResultStatus);
+      const pixelArtUrl = convertToPixelArt(liveCanvas, preliminaryStatus);
       setCapturedPhotoUrl(pixelArtUrl);
       stopCamera();
 
@@ -534,6 +627,7 @@ export default function App() {
       gameAudio.playSuccess();
     } catch (e) {
       console.error(e);
+      setIsDetectingWatermelon(false);
     }
   };
 
@@ -552,7 +646,7 @@ export default function App() {
   // --- Analyze Ripeness Results ---
   const executeScanAnalysis = () => {
     if (detectedFrequency === 0) {
-      alert('请先「敲一下」西瓜获取拍击频率！（点击"仿真敲击"声音按钮、或开启麦克风用拳头轻轻叩击西瓜）');
+      alert('咦，还没听到瓜瓜的声音呢！先点一下"仿真敲击"按钮，或者打开麦克风用指节轻轻敲敲西瓜～🔊');
       return;
     }
 
@@ -661,6 +755,9 @@ export default function App() {
       return r;
     });
     saveRecordsToStorage(updated);
+    // Sync like to server
+    fetch(`/chigua-api/records/${id}/like`, { method: 'POST' })
+      .catch(err => console.warn('[Like] 同步点赞失败:', err));
   };
 
   // --- Form submission to share the tested melon ---
@@ -669,7 +766,7 @@ export default function App() {
 
     // Antispam mechanism check
     if (cooldownRemaining > 0) {
-      alert(`❄️ 吃瓜提示：好瓜值得等待，心急吃不热带沙瓤！您正处于「夏日冰箱冷却降温期」，请在 ${cooldownRemaining} 秒后再发布瓜贴哦！默念：平心静气。`);
+      alert(`❄️ 冰镇中～好瓜值得等一等！刚发完一条，让小冰箱再凉 ${cooldownRemaining} 秒就可以发下一条啦～默念：平心静气，瓜甜如蜜～🍉`);
       return;
     }
 
@@ -686,16 +783,19 @@ export default function App() {
         .map(c => MODERATION_POLICY.find(p => p.id === c)?.category || c)
         .join('、');
       const suggestionText = modResult.suggestion
-        ? `\n\n💡 AI 建议：${modResult.suggestion}`
+        ? `\n\n💡 小审核员悄悄说：${modResult.suggestion}`
         : '';
       const confirmed = window.confirm(
-        `⚠️ AI 内容审核提示\n\n` +
-        `您的内容触发了以下规则：${categoryNames}\n` +
-        `我们建议您修改后重新发布。${suggestionText}\n\n` +
-        `点击"确定"仍要发布（内容将原样展示），"取消"返回修改。`
+        `🤔 小审核员歪了歪头～\n\n` +
+        `它觉得内容里有：${categoryNames}\n` +
+        `要不改得再温柔一点？${suggestionText}\n\n` +
+        `点"确定"就这样发啦，"取消"回去再改改～`
       );
       if (!confirmed) return;
     }
+
+    // GPS privacy — only city-level location, no precise coords
+    // (reverse geocoding already returns city name, so no extra warning needed)
 
     // Fallback Image generation based on testStatus if webcam wasn't captured
     const finalPhoto = capturedPhotoUrl || getWatermelonImageURL(testResultStatus, finalName);
@@ -725,7 +825,7 @@ export default function App() {
     };
 
     const updated = [newRecord, ...records];
-    saveRecordsToStorage(updated);
+    saveRecordsToStorage(updated, newRecord);
 
     // Trigger cooldown rate limit to prevent spam (60 seconds)
     const currentEnd = Date.now() + 60 * 1000;
@@ -775,7 +875,7 @@ export default function App() {
           </span>
         </h1>
         <p className="mt-2 text-xs sm:text-sm font-bold text-emerald-800 max-w-md leading-relaxed px-4">
-          🍉 炎炎夏日「拍击听声」测熟度，AI黑科技判定西瓜甜度！不买生瓜，做街头最靓的吃瓜行家！
+          🍉 炎炎夏日「拍一拍听声」测熟度，AI小精灵帮你判定西瓜甜不甜！不买生瓜蛋子，做街头最靓的吃瓜小行家！
         </p>
 
         {/* Dynamic Watermelon Eating Cycle Announcement Board */}
@@ -788,7 +888,7 @@ export default function App() {
             <span>不吃隔夜瓜！每日晒瓜数据将在凌晨 <strong className="text-xs sm:text-sm bg-rose-500 text-white font-black px-2 py-0.5 rounded-md border border-emerald-950 font-mono shadow-[1.5px_1.5px_0px_0px_#4c0519]">01:00</strong> 清空重置</span>
           </div>
           <p className="text-emerald-900 leading-normal font-bold text-center">
-            🔔 <strong>吃瓜防质变通知</strong>：为防止成熟西瓜"融化酸腐"或"过度熟烂"，倒计时归零时系统将进行<strong>一键全员冷藏净化（永久销毁全场数据）</strong>。瓜田不留隔夜汗，快趁鲜甜多多拍瓜、分享大作吧！~
+            🔔 <strong>不吃隔夜瓜小喇叭</strong>：隔夜西瓜可不好吃！每天凌晨 <strong>01:00</strong> 瓜田会清清爽爽焕新，昨天的瓜贴都会变成甜蜜回忆～趁新鲜赶紧拍拍瓜、晒晒图吧！🍉
           </p>
         </div>
 
@@ -813,7 +913,7 @@ export default function App() {
                 : 'bg-white text-emerald-950 hover:bg-emerald-100 shadow-[2px_2px_0px_0px_#064e3b]'
             }`}
           >
-            🔊 拍瓜成熟测试仪
+            🔊 拍拍瓜测熟度
           </button>
           
           <button
@@ -828,7 +928,7 @@ export default function App() {
                 : 'bg-white text-emerald-950 hover:bg-emerald-100 shadow-[2px_2px_0px_0px_#064e3b]'
             }`}
           >
-            🔥 社区晒瓜广场
+            🔥 吃瓜小广场
             {records.length > 0 && (
               <span className="bg-amber-400 text-emerald-950 text-[10px] font-black px-1.5 py-0.5 rounded-full border border-emerald-950">
                 {records.length}
@@ -863,7 +963,7 @@ export default function App() {
                         第一步：检测拍瓜音频
                       </h3>
                       <div className="flex items-center gap-1 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-lg text-[10px] font-bold text-amber-900">
-                        <span>🔊</span> 水果声响物理学
+                        <span>🔊</span> 拍拍西瓜听声辨熟
                       </div>
                     </div>
 
@@ -902,7 +1002,7 @@ export default function App() {
                         <span className="text-[9px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-extrabold border border-red-200">免麦克风</span>
                       </div>
                       <p className="text-[10.5px] text-emerald-800 mb-3">
-                        手头没有拍瓜音频？点击下方仿真敲击西瓜，能合成物理碰撞声音并捕获谱析数据！
+                        手边没有真瓜？点下面按钮模拟敲瓜声，一样能听到瓜瓜的声音哦！
                       </p>
                       
                       <div className="grid grid-cols-3 gap-2">
@@ -911,21 +1011,21 @@ export default function App() {
                           className="bg-emerald-50 hover:bg-emerald-100 ring-2 ring-emerald-900/10 hover:ring-emerald-900/30 text-emerald-900 px-2 py-2.5 rounded-xl text-center transition-all duration-200 active:scale-95 group"
                         >
                           <p className="font-extrabold text-xs">🔔 铛铛响</p>
-                          <p className="text-[9px] text-emerald-800 mt-1">(生西瓜响)</p>
+                          <p className="text-[9px] text-emerald-800 mt-1">还没熟呢～</p>
                         </button>
                         <button
                           onClick={() => simulateVirtualTap('ripe')}
                           className="bg-rose-50 hover:bg-rose-100 ring-2 ring-rose-900/10 hover:ring-rose-900/30 text-rose-900 px-2 py-2.5 rounded-xl text-center transition-all duration-200 active:scale-95 group"
                         >
                           <p className="font-extrabold text-xs">🥁 咚咚响</p>
-                          <p className="text-[9px] text-rose-800 mt-1">(极佳好瓜)</p>
+                          <p className="text-[9px] text-rose-800 mt-1">甜甜好瓜～</p>
                         </button>
                         <button
                           onClick={() => simulateVirtualTap('overripe')}
                           className="bg-amber-50 hover:bg-amber-100 ring-2 ring-amber-900/10 hover:ring-amber-900/30 text-amber-900 px-2 py-2.5 rounded-xl text-center transition-all duration-200 active:scale-95 group"
                         >
                           <p className="font-extrabold text-xs">🪵 噗噗响</p>
-                          <p className="text-[9px] text-amber-800 mt-1">(熟沙空心)</p>
+                          <p className="text-[9px] text-amber-800 mt-1">熟透沙沙的～</p>
                         </button>
                       </div>
                     </div>
@@ -937,7 +1037,7 @@ export default function App() {
                         <div>
                           <p className="text-[10px] text-emerald-800 font-bold leading-none">捕获声频数据</p>
                           <p className="text-emerald-950 font-black text-sm mt-1">
-                            {detectedFrequency ? `${detectedFrequency} Hz` : '等待拍瓜发出声音...'}
+                            {detectedFrequency ? `${detectedFrequency} Hz` : '等瓜瓜被敲响...'}
                           </p>
                         </div>
                       </div>
@@ -949,10 +1049,10 @@ export default function App() {
                           detectedFrequency < 90 ? 'bg-amber-100 text-amber-800 border-amber-300' :
                           'bg-rose-100 text-rose-800 border-rose-300'
                         }`}>
-                          {detectedFrequency === 0 ? '未捕获' :
-                           detectedFrequency > 180 ? '清脆高频(生涩)' :
-                           detectedFrequency < 90 ? '深沉低频(沙烂)' :
-                           '醇厚中频(甜熟)'}
+                          {detectedFrequency === 0 ? '还没敲到～' :
+                           detectedFrequency > 180 ? '声音清脆(还生着呢)' :
+                           detectedFrequency < 90 ? '声音闷闷的(熟透啦)' :
+                           '声音刚刚好(甜甜熟)'}
                         </span>
                       </div>
                     </div>
@@ -988,7 +1088,7 @@ export default function App() {
                           isCameraActive ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-emerald-950 hover:bg-emerald-100'
                         }`}
                       >
-                        {isCameraActive ? '🔴 结束相机' : '📷 开启微机镜头'}
+                        {isCameraActive ? '🔴 关掉镜头' : '📷 打开小镜头'}
                       </button>
                     </div>
 
@@ -1098,9 +1198,10 @@ export default function App() {
                     {isCameraActive && (
                       <button
                         onClick={captureWebcamAndAnalyze}
-                        className="mt-4 w-full bg-emerald-800 hover:bg-emerald-900 border-2 border-emerald-950 text-white font-extrabold text-xs py-2 rounded-xl transition-all duration-150 shadow-[2px_2px_0px_0px_#042f24] active:translate-y-[1px]"
+                        disabled={isDetectingWatermelon}
+                        className="mt-4 w-full bg-emerald-800 hover:bg-emerald-900 border-2 border-emerald-950 text-white font-extrabold text-xs py-2 rounded-xl transition-all duration-150 shadow-[2px_2px_0px_0px_#042f24] active:translate-y-[1px] disabled:opacity-60 disabled:cursor-wait"
                       >
-                        📸 智能拍照分析色泽
+                        {isDetectingWatermelon ? '🔍 小精灵正在帮你看看有没有瓜...' : '📸 拍照看看瓜长啥样'}
                       </button>
                     )}
 
@@ -1119,9 +1220,9 @@ export default function App() {
                           </div>
                         ) : (
                           <p className="text-[10.5px] text-emerald-800 italic">
-                            {waterMelonPreset === 'unripe' ? '当前预览：【生皮瓜】条纹淡且不均匀' :
-                             waterMelonPreset === 'ripe' ? '当前预览：【黄金熟瓜】花纹鲜明清晰' :
-                             '当前预览：【暗烂熟透瓜】瓜皮斑驳发暗'}
+                            {waterMelonPreset === 'unripe' ? '小生瓜：条纹淡淡的，还没睡醒～' :
+                             waterMelonPreset === 'ripe' ? '黄金瓜：花纹亮亮的，正是好时候！' :
+                             '熟透瓜：瓜皮有点暗，甜得不要不要的～'}
                           </p>
                         )}
                       </div>
@@ -1132,8 +1233,8 @@ export default function App() {
                   <div className="bg-amber-100 border-4 border-emerald-950 p-4 rounded-3xl shadow-[3px_3px_0px_0px_#064e3b] text-center space-y-3">
                     <p className="text-xs font-black text-emerald-950 leading-relaxed">
                       {detectedFrequency === 0 
-                        ? '💡 提示：敲击西瓜获取响声频率后，即可解锁"拍瓜分析"！'
-                        : '🎉 恭喜！数据捕获完毕，可立即开始物理学大瓜测算！'}
+                        ? '💡 敲敲西瓜、听听声音，就能解锁拍瓜分析啦！'
+                        : '🎉 听到声音啦！快来看看你的瓜熟不熟吧～'}
                     </p>
 
                     <button
@@ -1147,7 +1248,7 @@ export default function App() {
                           : 'bg-rose-600 text-white hover:bg-rose-700 active:scale-[0.98] shadow-[4px_4px_0px_0px_#4c0519]'
                       }`}
                     >
-                      {analyzing ? '⏳ 拍击波动力学计算中...' : '⭐ 开始拍瓜熟度测定！'}
+                      {analyzing ? '⏳ 正在用小耳朵听听这瓜熟不熟...' : '⭐ 拍一拍，看瓜熟不熟！'}
                     </button>
                   </div>
 
@@ -1212,16 +1313,16 @@ export default function App() {
                         <div className="absolute flex flex-col items-center">
                           <span className="text-3xl font-black text-emerald-950 leading-none">{calculatedScore}%</span>
                           <span className="text-[9.5px] text-emerald-800 font-bold mt-1">
-                            {testResultStatus === 'ripe' ? '水分充盈' :
-                             testResultStatus === 'unripe' ? '青脆酸涩' :
-                             '沙瓤熟过头'}
+                            {testResultStatus === 'ripe' ? '水嘟嘟的甜🍬' :
+                             testResultStatus === 'unripe' ? '还有点小生涩🌱' :
+                             '沙沙的熟透啦🍯'}
                           </span>
                         </div>
                       </div>
 
                       <div className="mt-3 text-center">
                         <span className="text-xs font-bold bg-[#FFFDF0] border border-amber-300 text-amber-900 px-2 py-0.5 rounded-full">
-                          采集音调: {detectedFrequency} Hz
+                          拍出来声音是: {detectedFrequency} Hz
                         </span>
                       </div>
                     </div>
@@ -1278,9 +1379,9 @@ export default function App() {
                              '🧘 佛系看淡心境'}
                           </span>
                           <p className="text-[10.5px] font-bold text-emerald-900 leading-relaxed font-sans">
-                            {testResultStatus === 'unripe' && '"不熟虽有生涩，但也是对未知的期待。静下心放它两天，静待花开！"'}
-                            {testResultStatus === 'ripe' && '"黄金熟度刚好！咔嚓爆汁，多巴胺元气瞬间溢出，感觉夏天被注满了甘甜！"'}
-                            {testResultStatus === 'overripe' && '"熟透也是一种极致。沙瓤温柔如老江湖看淡风云，躺平随缘，淡定看天。"'}
+                            {testResultStatus === 'unripe' && '"虽然还有点生，但也是甜甜的期待呀～放它两天，说不定就悄悄变甜了呢！🌱"'}
+                            {testResultStatus === 'ripe' && '"刚刚好的黄金甜熟！咔嚓一口汁水四溅，感觉整个夏天都被灌满了甜甜的幸福～☀️"'}
+                            {testResultStatus === 'overripe' && '"熟透了也是一种温柔～沙沙的口感像棉花糖，佛系躺平看云朵，随缘吃瓜最自在～☁️"'}
                           </p>
                         </div>
                       </div>
@@ -1290,15 +1391,15 @@ export default function App() {
                         <div className="bg-white p-3 rounded-xl border border-emerald-950/20">
                           <p className="text-gray-400 font-medium">🔊 物理声学特征</p>
                           <p className="text-emerald-950 font-black mt-1">
-                            {detectedFrequency < 90 ? '超重暗哑 (60-90Hz)' :
-                             detectedFrequency <= 165 ? '黄金波峰 (95-165Hz)' :
-                             '清高余音 (>165Hz)'}
+                            {detectedFrequency < 90 ? '声音闷闷的 (熟透啦)' :
+                             detectedFrequency <= 165 ? '声音刚刚好 (黄金甜熟)' :
+                             '声音脆脆的 (还生呢)'}
                           </p>
                         </div>
                         <div className="bg-white p-3 rounded-xl border border-emerald-950/20">
                           <p className="text-gray-400 font-medium">🎨 视觉纹理等级</p>
                           <p className="text-emerald-950 font-black mt-1">
-                            {capturedPhotoUrl ? '现场图谱解压扫描' : '虚拟色板完美映射'}
+                            {capturedPhotoUrl ? '📸 真实一拍' : '🎨 虚拟小画家'}
                           </p>
                         </div>
                       </div>
@@ -1455,7 +1556,7 @@ export default function App() {
                           <div className="space-y-2">
                             {/* Preset plantation chips */}
                             <div className="flex flex-wrap gap-1.5">
-                              {['📍 北京大兴庞各庄区', '📍 新疆哈密葡萄沙地', '📍 宁夏中卫高山砂田', '📍 海南三亚椰林滩区', '📍 浙江温岭滨海瓜棚', '📍 避暑冰爽空调房'].map((loc) => (
+                              {['📍 北京·庞各庄大西瓜', '📍 新疆·哈密甜甜葡萄沙地', '📍 宁夏·中卫高山砂田', '📍 海南·三亚椰林海风瓜', '📍 浙江·温岭滨海小瓜棚', '📍 家里·冰爽空调房'].map((loc) => (
                                 <button
                                   key={loc}
                                   type="button"
@@ -1506,7 +1607,7 @@ export default function App() {
                         {showRules && (
                           <>
                             <p className="text-[10.5px] leading-relaxed text-emerald-900">
-                              吃瓜本是一场欢声笑语的夏日分享。为了<strong>避免过度情绪化、负极端的辱骂吐槽破坏和谐氛围</strong>，本广场接入了 <strong>DeepSeek AI 智能审核</strong>，对以下三类内容进行实时检测和建议：
+                              吃瓜本是一场欢声笑语的夏日分享～为了<strong>让广场甜甜的、暖暖的，不被坏情绪打扰</strong>，我们请了一位 <strong>AI 小审核员</strong> 帮忙看看内容，对这三类小状况提个醒：
                             </p>
 
                             {/* Policy columns */}
@@ -1541,10 +1642,10 @@ export default function App() {
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-[10.5px] font-black flex items-center gap-1.5 text-emerald-950">
                                   {previewModeration.loading
-                                    ? '🔄 AI 正在审核内容...'
+                                    ? '🔄 小审核员正在看你的内容...'
                                     : previewModeration.flagged
-                                    ? '⚠️ AI 检测到可能需要调整的内容：'
-                                    : '✅ AI 实时审核通过 (内容绿色安全)：'}
+                                    ? '⚠️ 小审核员觉得这里或许可以温柔一点：'
+                                    : '✅ 小审核员说内容很甜很安全～'}
                                 </span>
                                 {previewModeration.flagged && (
                                   <span className="text-[9.5px] font-black text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full animate-pulse">
@@ -1609,15 +1710,15 @@ export default function App() {
                 <ul className="space-y-1.5 text-xs text-emerald-900 font-medium">
                   <li className="flex items-start gap-1">
                     <span className="text-emerald-800">☝️</span> 
-                    <span>用<strong>半握住的拳头（指节）</strong>，轻轻有节奏地连续敲击西瓜中段。</span>
+                    <span>把小手<strong>半握成拳头（用指节敲哦）</strong>，轻轻有节奏地敲敲西瓜的肚皮～</span>
                   </li>
                   <li className="flex items-start gap-1">
                     <span className="text-emerald-800">☝️</span> 
-                    <span>听起来像<strong>拍胸膛「咚咚」响</strong>的声音为佳瓜，属于熟了且爆汁的优质沙瓤🍉。</span>
+                    <span>听起来像<strong>拍拍小胸脯「咚咚」响</strong>——这是好瓜！熟了、多汁、甜甜的沙瓤！🍉</span>
                   </li>
                   <li className="flex items-start gap-1">
                     <span className="text-emerald-800">☝️</span> 
-                    <span>听起来像<strong>拍额头「铛铛」响</strong>沉闷干脆的是生西瓜；像<strong>拍肚子「噗噗」响</strong>并伴有颤动的是可能熟过了、发软空心。</span>
+                    <span>听起来像<strong>弹脑门「铛铛」响</strong>——声音脆脆的是还生的小瓜；像<strong>拍小肚皮「噗噗」响</strong>还带颤音——可能熟过头啦，软软空空的～</span>
                   </li>
                 </ul>
               </div>
@@ -1633,10 +1734,10 @@ export default function App() {
             >
               <div className="mb-6">
                 <h2 className="text-xl font-black text-emerald-950 flex items-center gap-2">
-                  🍉 热门晒瓜广场
+                  🍉 大家的甜甜瓜田
                 </h2>
                 <p className="text-xs text-emerald-800">
-                  看看全国吃瓜群众们鉴定的"梦中情西瓜"与"踩雷白瓤瓜"！
+                  看看全国吃瓜小可爱们找到的"梦中情瓜"与"翻车白瓤瓜"！
                 </p>
               </div>
 
