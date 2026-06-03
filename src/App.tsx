@@ -29,7 +29,7 @@ import { drawWatermelonToCanvas, getWatermelonImageURL, getSlicedWatermelonImage
 import { MODERATION_POLICY } from './utils/moderationPolicy';
 import { useModeration, checkContent } from './utils/moderationApi';
 import { detectWatermelonFromCanvas } from './utils/watermelonDetector';
-import { canPerformAction, isCoolingDown, recordAction, getRemainingPower, getDailyQuotaRemaining, getTrustProfile, formatPower } from './utils/trustSystem';
+import { canPerformAction, isCoolingDown, recordAction, getRemainingPower, getDailyQuotaRemaining, getTrustProfile, formatPower, getPostAction } from './utils/trustSystem';
 import { convertToPixelArt } from './utils/pixelArtConverter';
 
 // Seed community data
@@ -881,6 +881,24 @@ export default function App() {
     gameAudio.playPop();
   };
 
+  // 操作切换：先回退旧操作计数，再应用新操作
+  const applyActionSwitch = (records: WatermelonRecord[], id: string, action: 'like' | 'dispute' | 'whatsup'): WatermelonRecord[] => {
+    const prev = getPostAction(id);
+    return records.map(r => {
+      if (r.id !== id) return r;
+      const updated = { ...r };
+      // 回退旧操作
+      if (prev === 'like') updated.likes = Math.max(0, r.likes - 1);
+      else if (prev === 'dispute') updated.priceDisputes = Math.max(0, (r.priceDisputes || 0) - 1);
+      else if (prev === 'whatsup') updated.whatsUp = Math.max(0, (r.whatsUp || 0) - 1);
+      // 应用新操作
+      if (action === 'like') updated.likes = (updated.likes || 0) + 1;
+      else if (action === 'dispute') updated.priceDisputes = (updated.priceDisputes || 0) + 1;
+      else if (action === 'whatsup') updated.whatsUp = (updated.whatsUp || 0) + 1;
+      return updated;
+    });
+  };
+
   // --- What's up! reaction ---
   const handleWhatsUp = (id: string) => {
     if (isCoolingDown()) return;
@@ -888,10 +906,7 @@ export default function App() {
     if (!check.allowed) { alert(check.reason || '操作被限制'); return; }
     gameAudio.playPop();
     recordAction(id, 'whatsup');
-    const updated = records.map(r => {
-      if (r.id === id) return { ...r, whatsUp: (r.whatsUp || 0) + 1 };
-      return r;
-    });
+    const updated = applyActionSwitch(records, id, 'whatsup');
     saveRecordsToStorage(updated);
     fetch(`/chigua-api/records/${id}/whatsup`, { method: 'POST' })
       .catch(err => console.warn('[WhatsUp] 同步失败:', err));
@@ -904,10 +919,7 @@ export default function App() {
     if (!check.allowed) { alert(check.reason || '操作被限制'); return; }
     gameAudio.playPop();
     recordAction(id, 'dispute');
-    const updated = records.map(r => {
-      if (r.id === id) return { ...r, priceDisputes: (r.priceDisputes || 0) + 1 };
-      return r;
-    });
+    const updated = applyActionSwitch(records, id, 'dispute');
     saveRecordsToStorage(updated);
     fetch(`/chigua-api/records/${id}/dispute-price`, { method: 'POST' })
       .catch(err => console.warn('[Dispute] 同步失败:', err));
@@ -921,10 +933,7 @@ export default function App() {
     if (!check.allowed) { alert(check.reason || '操作被限制'); return; }
     gameAudio.playPop();
     recordAction(id, 'like');
-    const updated = records.map(r => {
-      if (r.id === id) return { ...r, likes: r.likes + 1 };
-      return r;
-    });
+    const updated = applyActionSwitch(records, id, 'like');
     saveRecordsToStorage(updated);
     fetch(`/chigua-api/records/${id}/like`, { method: 'POST' })
       .catch(err => console.warn('[Like] 同步点赞失败:', err));
@@ -1052,7 +1061,7 @@ export default function App() {
           </span>
         </h1>
         <p className="mt-2 text-xs sm:text-sm font-bold text-emerald-800 max-w-md leading-relaxed px-4">
-          🍉 炎炎夏日「拍一拍听声」测熟度，AI小精灵帮你判定西瓜甜不甜！不买生瓜蛋子，做街头最靓的吃瓜小行家！
+          🍉「这瓜保熟吗？」拍一拍、听一听、看一看——AI 小精灵帮你验货！不买生瓜蛋子，不给摊主萨日朗的机会。做街头最懂瓜的吃瓜大师！
         </p>
 
         {/* Dynamic Watermelon Eating Cycle Announcement Board */}

@@ -90,21 +90,26 @@ export function canPerformAction(
 ): ActionResult {
   const state = getDailyState();
 
-  // 1. 互斥锁：同一帖子只能操作一次
-  if (state.actions[postId]) {
-    return { allowed: false, reason: '你已经对这瓜贴操作过了～' };
-  }
-
-  // 2. 日配额检查
-  const quotaKey = action === 'dispute' ? 'disputes' : action === 'whatsup' ? 'whatsups' : 'likes';
-  const used = state[quotaKey];
-  const max = action === 'dispute' ? MAX_DAILY_DISPUTES : action === 'whatsup' ? MAX_DAILY_WHATSUPS : MAX_DAILY_LIKES;
-  if (used >= max) {
+  // 1. 重复检查：同一操作不能重复点
+  if (state.actions[postId] === action) {
     const names: Record<ActionType, string> = { like: '点赞', dispute: '踩价', whatsup: "What's up" };
-    return { allowed: false, reason: `今日${names[action]}次数用完了，凌晨刷新～` };
+    return { allowed: false, reason: `你已经${names[action]}过这瓜贴啦～` };
   }
 
-  // 3. 瓜力检查
+  // 2. 日配额检查（切换操作时不消耗新配额）
+  const prevAction = state.actions[postId];
+  if (!prevAction) {
+    // 新操作 → 检查配额
+    const quotaKey = action === 'dispute' ? 'disputes' : action === 'whatsup' ? 'whatsups' : 'likes';
+    const used = state[quotaKey];
+    const max = action === 'dispute' ? MAX_DAILY_DISPUTES : action === 'whatsup' ? MAX_DAILY_WHATSUPS : MAX_DAILY_LIKES;
+    if (used >= max) {
+      const names: Record<ActionType, string> = { like: '点赞', dispute: '踩价', whatsup: "What's up" };
+      return { allowed: false, reason: `今日${names[action]}次数用完了，凌晨刷新～` };
+    }
+  }
+
+  // 3. 瓜力检查（切换操作也消耗 1 点）
   if (state.remainingPower <= 0) {
     return { allowed: false, reason: '今日瓜力耗尽！凌晨1点恢复10点🍉' };
   }
@@ -118,25 +123,40 @@ export function isCoolingDown(): boolean {
   return Date.now() - lastActionTime < COOLDOWN_MS;
 }
 
-/** 记录一次操作 */
+/** 记录一次操作（切换操作时归还旧配额） */
 export function recordAction(postId: string, action: ActionType) {
   const state = getDailyState();
+  const prev = state.actions[postId];
 
-  // 互斥锁
+  // 切换操作：归还旧操作配额
+  if (prev && prev !== action) {
+    if (prev === 'like') state.likes = Math.max(0, state.likes - 1);
+    else if (prev === 'dispute') state.disputes = Math.max(0, state.disputes - 1);
+    else if (prev === 'whatsup') state.whatsups = Math.max(0, state.whatsups - 1);
+  }
+
+  // 设置新操作
   state.actions[postId] = action;
 
-  // 日配额
-  if (action === 'like') state.likes++;
-  else if (action === 'dispute') state.disputes++;
-  else if (action === 'whatsup') state.whatsups++;
+  // 新操作计数（只有全新操作才消耗配额）
+  if (!prev) {
+    if (action === 'like') state.likes++;
+    else if (action === 'dispute') state.disputes++;
+    else if (action === 'whatsup') state.whatsups++;
+  }
 
-  // 瓜力消耗
+  // 瓜力消耗（切换也消耗）
   state.remainingPower = Math.max(0, state.remainingPower - 1);
 
   // 冷却时间戳
   lastActionTime = Date.now();
 
   saveDailyState(state);
+}
+
+/** 获取某帖子当前操作类型（用于 UI 高亮） */
+export function getPostAction(postId: string): ActionType | null {
+  return getDailyState().actions[postId] || null;
 }
 
 /** 获取当前瓜力点数 */
