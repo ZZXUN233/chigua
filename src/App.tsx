@@ -136,6 +136,7 @@ export default function App() {
   const [melonPassport, setMelonPassport] = useState<string>('');
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
   const [daysRemaining, setDaysRemaining] = useState<number>(10);
+  const [showRules, setShowRules] = useState<boolean>(false);
 
   // Countdown timer for posting cooldown
   useEffect(() => {
@@ -1456,32 +1457,44 @@ export default function App() {
 
                       {/* Prominent Sensitive Word Filters Rule Board and Real-time Purified Preview */}
                       <div className="bg-emerald-50/80 border-2 border-emerald-950 p-4 rounded-2xl space-y-3 shadow-[2px_2px_0px_0px_#064e3b]">
-                        <div className="flex items-center gap-2 border-b-2 border-dashed border-emerald-950/10 pb-2">
-                          <span className="text-base">🛡️</span>
-                          <span className="text-xs font-black text-emerald-950">绿色吃瓜广场情绪行为准则明牌公示</span>
+                        <div
+                          className="flex items-center justify-between gap-2 border-b-2 border-dashed border-emerald-950/10 pb-2 cursor-pointer select-none"
+                          onClick={() => setShowRules(!showRules)}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">🛡️</span>
+                            <span className="text-xs font-black text-emerald-950">绿色吃瓜广场情绪行为准则明牌公示</span>
+                          </div>
+                          <span className={`text-xs transition-transform duration-200 ${showRules ? 'rotate-90' : ''}`}>
+                            ▶
+                          </span>
                         </div>
-                        
-                        <p className="text-[10.5px] leading-relaxed text-emerald-900">
-                          吃瓜本是一场欢声笑语的夏日分享。为了<strong>避免过度情绪化、负极端的辱骂吐槽破坏和谐氛围</strong>，本广场对极端不文明词汇、狂躁暴躁宣泄设置了<strong>【夏日冰镇重组机制】</strong>：
-                        </p>
 
-                        {/* Rules columns list explicitly */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-                          {FILTER_RULES.map((rule) => (
-                            <div key={rule.id} className="bg-white border-2 border-emerald-950/20 p-2.5 rounded-xl flex flex-col justify-between">
-                              <p className="text-[10.5px] font-black text-emerald-950 leading-tight">
-                                {rule.category}
-                              </p>
-                              <p className="text-[9.5px] text-gray-500 font-bold mt-1.5 leading-normal line-clamp-2">
-                                示例: {rule.words.slice(0, 5).join('、')}等
-                              </p>
-                              <div className="mt-2 bg-[#FFFDF0] border border-amber-300 p-1 rounded-lg text-center">
-                                <p className="text-[8.5px] text-amber-900 font-bold">已自动净化替换为：</p>
-                                <p className="text-[10px] font-black text-rose-600 truncate mt-0.5">{rule.replacement}</p>
-                              </div>
+                        {showRules && (
+                          <>
+                            <p className="text-[10.5px] leading-relaxed text-emerald-900">
+                              吃瓜本是一场欢声笑语的夏日分享。为了<strong>避免过度情绪化、负极端的辱骂吐槽破坏和谐氛围</strong>，本广场对极端不文明词汇、狂躁暴躁宣泄设置了<strong>【夏日冰镇重组机制】</strong>：
+                            </p>
+
+                            {/* Rules columns list explicitly */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                              {FILTER_RULES.map((rule) => (
+                                <div key={rule.id} className="bg-white border-2 border-emerald-950/20 p-2.5 rounded-xl flex flex-col justify-between">
+                                  <p className="text-[10.5px] font-black text-emerald-950 leading-tight">
+                                    {rule.category}
+                                  </p>
+                                  <p className="text-[9.5px] text-gray-500 font-bold mt-1.5 leading-normal line-clamp-2">
+                                    示例: {rule.words.slice(0, 5).join('、')}等
+                                  </p>
+                                  <div className="mt-2 bg-[#FFFDF0] border border-amber-300 p-1 rounded-lg text-center">
+                                    <p className="text-[8.5px] text-amber-900 font-bold">已自动净化替换为：</p>
+                                    <p className="text-[10px] font-black text-rose-600 truncate mt-0.5">{rule.replacement}</p>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
+                          </>
+                        )}
 
                         {/* Real-time filtered text preview */}
                         {(customComment.trim() || customMelonName.trim()) && (() => {
