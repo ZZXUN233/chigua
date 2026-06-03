@@ -12,9 +12,16 @@ TAG="latest"
 
 echo "🍉 开始部署吃瓜大师..."
 
-# 构建 Docker 镜像
+# 读取 .env.local 中的 VITE_SHARED_SECRET
+if [ -f .env.local ]; then
+  export $(grep VITE_SHARED_SECRET .env.local | xargs)
+fi
+
+# 构建 Docker 镜像（传入前端编译需要的环境变量）
 echo "📦 构建 Docker 镜像..."
-docker build -t ${IMAGE_NAME}:${TAG} .
+docker build \
+  --build-arg VITE_SHARED_SECRET="${VITE_SHARED_SECRET:-chigua-summer-2026-secret}" \
+  -t ${IMAGE_NAME}:${TAG} .
 
 # 打标签
 echo "🏷️ 打标签..."

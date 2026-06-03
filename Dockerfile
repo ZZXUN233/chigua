@@ -13,6 +13,10 @@ RUN npm ci
 # 复制所有源代码
 COPY . .
 
+# 前端构建时需要的环境变量（VITE_ 前缀，通过 build-arg 传入）
+ARG VITE_SHARED_SECRET=""
+ENV VITE_SHARED_SECRET=$VITE_SHARED_SECRET
+
 # 构建前端应用
 RUN npm run build
 
