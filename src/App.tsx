@@ -220,6 +220,12 @@ export default function App() {
     return () => clearTimeout(id);
   }, [isListeningMic, micCountdown]);
 
+  // 从 customLocation 格式中提取城市名（如 "📍 北京·庞各庄的甜甜瓜田" → "北京"）
+  const extractCityFromLocation = (loc: string): string | null => {
+    const m = loc.match(/📍\s*([^\s·]+)/);
+    return m ? m[1] : null;
+  };
+
   const handleAutoGetLocation = () => {
     if (!navigator.geolocation) {
       alert('⚠️ 哎呀，你的浏览器不支持定位功能～已帮你挑了一个甜甜的瓜地！🍉');
@@ -470,12 +476,12 @@ export default function App() {
   useEffect(() => {
     const canvas = previewCanvasRef.current;
     if (canvas && !isCameraActive && !capturedPhotoUrl) {
-      drawWatermelonToCanvas(canvas, waterMelonPreset, {
+      drawWatermelonToCanvas(canvas, 'ripe', {
         showFace: true,
-        nameTag: waterMelonPreset === 'unripe' ? '小生瓜 (铛铛)' : waterMelonPreset === 'ripe' ? '甜沙瓤 (咚咚)' : '熟透瓜 (噗噗)'
+        nameTag: '甜沙瓤 (咚咚响)'
       });
     }
-  }, [waterMelonPreset, isCameraActive, capturedPhotoUrl]);
+  }, [isCameraActive, capturedPhotoUrl]);
 
   // --- Real Microphone Analyzer Handler ---
   const toggleMicrophone = async () => {
@@ -1006,7 +1012,8 @@ export default function App() {
       // 华强买瓜：价格行情
       pricePerJin: customPrice ? parseFloat(customPrice) : undefined,
       isSelfSplit,
-      purchaseLocation: purchaseLocation.trim() || undefined
+      // 兜底：如果没点GPS，从 customLocation 提取城市名
+      purchaseLocation: purchaseLocation.trim() || extractCityFromLocation(customLocation) || undefined
     };
 
     const updated = [newRecord, ...records];
@@ -2062,7 +2069,7 @@ export default function App() {
               )}
 
               {/* Feed List rendered natively */}
-              <SquareFeed records={records} onLike={handleLikeRecord} onWhatsUp={handleWhatsUp} onDisputePrice={handleDisputePrice} />
+              <SquareFeed records={records} onLike={handleLikeRecord} onWhatsUp={handleWhatsUp} onDisputePrice={handleDisputePrice} localCity={purchaseLocation || extractCityFromLocation(customLocation) || undefined} />
             </motion.div>
           )}
         </AnimatePresence>

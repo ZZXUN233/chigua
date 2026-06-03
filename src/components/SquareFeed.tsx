@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { WatermelonRecord } from '../types';
-import { ThumbsUp, Calendar, Trophy, Sparkles, MessageSquare, Star } from 'lucide-react';
+import { ThumbsUp, Calendar, Trophy, Sparkles, MessageSquare, Star, MapPin } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface SquareFeedProps {
@@ -8,11 +8,17 @@ interface SquareFeedProps {
   onLike: (id: string) => void;
   onWhatsUp: (id: string) => void;
   onDisputePrice: (id: string) => void;
+  localCity?: string;
 }
 
-export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhatsUp, onDisputePrice }) => {
-  const [activeTab, setActiveTab] = useState<'all' | 'leaderboard'>('all');
+export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhatsUp, onDisputePrice, localCity }) => {
+  const [activeTab, setActiveTab] = useState<'all' | 'leaderboard' | 'local'>('all');
   const [showSecurityLab, setShowSecurityLab] = useState<boolean>(false);
+
+  const localRecords = React.useMemo(() => {
+    if (!localCity) return [];
+    return records.filter(r => r.purchaseLocation && r.purchaseLocation.includes(localCity));
+  }, [records, localCity]);
 
   const getMoodBadge = (status: 'unripe' | 'ripe' | 'overripe', customMood?: string) => {
     if (customMood) return customMood;
@@ -48,13 +54,14 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhats
     }
   };
 
-  // Sort logic
-  const sortedRecords = [...records].sort((a, b) => {
-    if (activeTab === 'leaderboard') {
-      return b.overallScore - a.overallScore; // high score first
-    }
-    return b.timestamp - a.timestamp; // newest first
-  });
+  // Sort / filter logic
+  const sortedRecords = (() => {
+    const source = activeTab === 'local' ? localRecords : records;
+    return [...source].sort((a, b) => {
+      if (activeTab === 'leaderboard') return b.overallScore - a.overallScore;
+      return b.timestamp - a.timestamp;
+    });
+  })();
 
   return (
     <div className="w-full">
@@ -71,6 +78,19 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhats
           <MessageSquare size={16} />
           最新瓜贴
         </button>
+        {localCity && (
+          <button
+            onClick={() => setActiveTab('local')}
+            className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all duration-200 flex items-center justify-center gap-1.5 ${
+              activeTab === 'local'
+                ? 'bg-sky-600 text-white shadow-[0px_3px_0px_0px_#0c4a6e]'
+                : 'text-emerald-950 hover:bg-emerald-100'
+            }`}
+          >
+            <MapPin size={16} />
+            {localCity}瓜贴
+          </button>
+        )}
         <button
           onClick={() => setActiveTab('leaderboard')}
           className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all duration-200 flex items-center justify-center gap-1.5 ${
@@ -80,7 +100,7 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhats
           }`}
         >
           <Trophy size={16} />
-          🏆 最甜瓜瓜榜
+          🏆 最强瓜贴
         </button>
       </div>
 
