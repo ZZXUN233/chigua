@@ -66,40 +66,40 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhats
   return (
     <div className="w-full">
       {/* Tab Selectors */}
-      <div className="flex bg-amber-50 p-1.5 rounded-2xl border-4 border-emerald-950 mb-6 shadow-[2px_2px_0px_0px_#064e3b]">
+      <div className="flex bg-amber-50 p-1 sm:p-1.5 rounded-xl sm:rounded-2xl border-2 sm:border-4 border-emerald-950 mb-6 shadow-[2px_2px_0px_0px_#064e3b]">
         <button
           onClick={() => setActiveTab('all')}
-          className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all duration-200 flex items-center justify-center gap-1.5 ${
+          className={`flex-1 py-1.5 sm:py-2 text-xs sm:text-sm font-bold rounded-lg sm:rounded-xl transition-all duration-200 flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${
             activeTab === 'all'
               ? 'bg-emerald-800 text-white shadow-[0px_3px_0px_0px_#042f24]'
               : 'text-emerald-950 hover:bg-emerald-100'
           }`}
         >
-          <MessageSquare size={16} />
+          <MessageSquare size={14} className="sm:w-4 sm:h-4" />
           最新瓜贴
         </button>
         {localCity && (
           <button
             onClick={() => setActiveTab('local')}
-            className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all duration-200 flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-1.5 sm:py-2 text-xs sm:text-sm font-bold rounded-lg sm:rounded-xl transition-all duration-200 flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${
               activeTab === 'local'
                 ? 'bg-sky-600 text-white shadow-[0px_3px_0px_0px_#0c4a6e]'
                 : 'text-emerald-950 hover:bg-emerald-100'
             }`}
           >
-            <MapPin size={16} />
+            <MapPin size={14} className="sm:w-4 sm:h-4" />
             {localCity}瓜贴
           </button>
         )}
         <button
           onClick={() => setActiveTab('leaderboard')}
-          className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all duration-200 flex items-center justify-center gap-1.5 ${
+          className={`flex-1 py-1.5 sm:py-2 text-xs sm:text-sm font-bold rounded-lg sm:rounded-xl transition-all duration-200 flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${
             activeTab === 'leaderboard'
               ? 'bg-rose-600 text-white shadow-[0px_3px_0px_0px_#9b1c1c]'
               : 'text-emerald-950 hover:bg-emerald-100'
           }`}
         >
-          <Trophy size={16} />
+          <Trophy size={14} className="sm:w-4 sm:h-4" />
           🏆 最强瓜贴
         </button>
       </div>
@@ -161,12 +161,12 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhats
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
               key={item.id}
-              className="relative bg-white border-4 border-emerald-950 rounded-3xl p-4 flex flex-col justify-between hover:scale-[1.01] transition-transform duration-200 shadow-[4px_4px_0px_0px_#064e3b]"
+              className="relative bg-white border-2 sm:border-4 border-emerald-950 rounded-2xl sm:rounded-3xl p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.01] transition-transform duration-200 shadow-[2px_2px_0px_0px_rgba(6,78,59,0.5)] sm:shadow-[4px_4px_0px_0px_#064e3b]"
             >
               {/* Leaderboard Rank Badge */}
               {activeTab === 'leaderboard' && (
-                <div className="absolute -top-3 -left-3 w-10 h-10 bg-amber-400 border-4 border-emerald-950 rounded-full flex items-center justify-center shadow-[2px_2px_0px_0px_#064e3b] z-10">
-                  <span className="font-extrabold text-emerald-950 text-sm">
+                <div className="absolute -top-2 sm:-top-3 -left-2 sm:-left-3 w-8 h-8 sm:w-10 sm:h-10 bg-amber-400 border-2 sm:border-4 border-emerald-950 rounded-full flex items-center justify-center shadow-[2px_2px_0px_0px_#064e3b] z-10">
+                  <span className="font-extrabold text-emerald-950 text-xs sm:text-sm">
                     {index === 0 ? '👑' : index + 1}
                   </span>
                 </div>

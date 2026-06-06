@@ -492,16 +492,39 @@ export default function App() {
     } else {
       // Turn on
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        micStreamRef.current = stream;
-
+        // 1. 先创建 AudioContext（必须在用户手势内完成，iOS 严格要求）
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContextClass) {
+          throw new Error('浏览器不支持 Web Audio API，请升级浏览器或使用 Safari/Chrome 打开');
+        }
         const audioCtx = new AudioContextClass();
         audioContextRef.current = audioCtx;
 
+        // 2. 检查是否支持麦克风采集
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          // Android 微信 X5 内核 / 旧版浏览器 不支持 getUserMedia
+          if (audioCtx.state === 'suspended') {
+            await audioCtx.resume(); // 至少让模拟敲击音效可用
+          }
+          throw new Error('当前浏览器不支持麦克风采集（常见于微信内置浏览器），请用系统浏览器打开');
+        }
+
+        // 3. 请求麦克风权限
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStreamRef.current = stream;
+
+        // 4. 移动端浏览器默认挂起 AudioContext，必须手动 resume
+        if (audioCtx.state === 'suspended') {
+          await audioCtx.resume();
+        }
+        if (audioCtx.state !== 'running') {
+          throw new Error(`AudioContext 无法启动 (state: ${audioCtx.state})，请尝试刷新页面后重试`);
+        }
+
+        // 5. 连接音频处理管线
         const source = audioCtx.createMediaStreamSource(stream);
         const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 1024;
+        analyser.fftSize = 2048;  // 提升频率分辨率：每 bin 约 21Hz (44.1k sampleRate)
         source.connect(analyser);
         analyserRef.current = analyser;
 
@@ -577,9 +600,16 @@ export default function App() {
 
         listenIntervalRef.current = requestAnimationFrame(checkTap);
 
-      } catch (err) {
-        console.warn('Microphone permission or hardware issue:', err);
-        alert('哎呀，麦克风好像没准备好～没关系！已帮你切到"拍拍模拟器"模式，点按钮就能听到瓜瓜的声音，一样好玩哦！🎵');
+      } catch (err: any) {
+        const errMsg = err?.message || String(err);
+        console.warn('麦克风启动失败:', errMsg);
+        // 显示具体错误原因，帮助用户排查
+        alert(
+          '哎呀，麦克风没准备好！😢\n\n' +
+          '原因：' + errMsg + '\n\n' +
+          '别担心～已帮你切到"拍拍模拟器"模式，' +
+          '点下面的熟/生/过熟按钮就能模拟敲瓜声，一样好玩哦！🎵'
+        );
         setUseRealMic(false);
       }
     }
@@ -1061,7 +1091,7 @@ export default function App() {
         </motion.div>
 
         {/* Title and subtitle */}
-        <h1 className="text-3xl sm:text-4px font-black tracking-tight text-emerald-900 inline-flex items-center gap-2 font-sans">
+        <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-emerald-900 inline-flex items-center gap-2 font-sans">
           吃 瓜 大 师
           <span className="text-xs bg-rose-500 text-white font-extrabold px-2 py-0.5 rounded-full border-2 border-emerald-950 rotate-3 shadow-[1.5px_1.5px_0px_0px_#064e3b]">
             SUMMER VIBES
@@ -1093,14 +1123,14 @@ export default function App() {
       <div className="max-w-4xl mx-auto px-4 mt-8">
         
         {/* Main Segment Swappings */}
-        <div className="flex gap-4 justify-center mb-8">
+        <div className="flex gap-2 sm:gap-4 justify-center mb-8 flex-wrap">
           <button
             onClick={() => {
               setActiveSegment('scan');
               gameAudio.playPop();
             }}
             id="tab-btn-scan"
-            className={`px-6 py-3 rounded-2xl font-black text-sm flex items-center gap-2 border-4 border-emerald-950 transition-all ${
+            className={`px-3 sm:px-5 py-2.5 rounded-xl sm:rounded-2xl font-black text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 border-2 sm:border-4 border-emerald-950 transition-all whitespace-nowrap ${
               activeSegment === 'scan'
                 ? 'bg-emerald-800 text-white shadow-[4px_4px_0px_0px_#042f24] -translate-y-1'
                 : 'bg-white text-emerald-950 hover:bg-emerald-100 shadow-[2px_2px_0px_0px_#064e3b]'
@@ -1108,14 +1138,14 @@ export default function App() {
           >
             🔊 拍拍瓜测熟度
           </button>
-          
+
           <button
             onClick={() => {
               setActiveSegment('community');
               gameAudio.playPop();
             }}
             id="tab-btn-community"
-            className={`px-6 py-3 rounded-2xl font-black text-sm flex items-center gap-2 border-4 border-emerald-950 transition-all ${
+            className={`px-3 sm:px-5 py-2.5 rounded-xl sm:rounded-2xl font-black text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 border-2 sm:border-4 border-emerald-950 transition-all whitespace-nowrap ${
               activeSegment === 'community'
                 ? 'bg-rose-600 text-white shadow-[4px_4px_0px_0px_#4c0519] -translate-y-1'
                 : 'bg-white text-emerald-950 hover:bg-emerald-100 shadow-[2px_2px_0px_0px_#064e3b]'
@@ -1149,14 +1179,15 @@ export default function App() {
                 <div className="lg:col-span-7 space-y-6">
                   
                   {/* STEP 1: Microphones Sound Tapping */}
-                  <div className="bg-white border-4 border-emerald-950 rounded-3xl p-5 shadow-[4px_4px_0px_0px_#064e3b]">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-base font-extrabold text-emerald-950 flex items-center gap-1.5">
-                        <span className="w-6 h-6 bg-emerald-100 border border-emerald-300 rounded-full flex items-center justify-center text-xs">1</span>
-                        第一步：检测拍瓜音频
+                  <div className="bg-white border-2 sm:border-4 border-emerald-950 rounded-2xl sm:rounded-3xl p-3 sm:p-5 shadow-[2px_2px_0px_0px_rgba(6,78,59,0.5)] sm:shadow-[4px_4px_0px_0px_#064e3b]">
+                    <div className="flex items-center justify-between mb-3 sm:mb-4 gap-2">
+                      <h3 className="text-sm sm:text-base font-extrabold text-emerald-950 flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="w-5 h-5 sm:w-6 sm:h-6 bg-emerald-100 border border-emerald-300 rounded-full flex items-center justify-center text-[10px] sm:text-xs shrink-0">1</span>
+                        <span className="hidden sm:inline">第一步：检测拍瓜音频</span>
+                        <span className="sm:hidden">拍瓜音频</span>
                       </h3>
-                      <div className="flex items-center gap-1 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-lg text-[10px] font-bold text-amber-900">
-                        <span>🔊</span> 拍拍西瓜听声辨熟
+                      <div className="flex items-center gap-1 bg-amber-100 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-lg text-[9px] sm:text-[10px] font-bold text-amber-900 whitespace-nowrap shrink-0">
+                        <span>🔊</span> <span className="hidden sm:inline">拍拍西瓜</span>听声辨熟
                       </div>
                     </div>
 
@@ -1170,31 +1201,31 @@ export default function App() {
                     </div>
 
                     {/* Mic Trigger */}
-                    <div className="bg-emerald-50/50 p-3 rounded-2xl border-2 border-emerald-900/10 mb-4 flex items-center justify-between gap-3">
-                      <div className="flex-1">
+                    <div className="bg-emerald-50/50 p-3 rounded-2xl border-2 border-emerald-900/10 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
+                      <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-emerald-950">🎙️ 拍击麦克风检测仪</p>
-                        <p className="text-[10px] text-emerald-800">用拳头轻轻叩击瓜皮，本设备将自动捕获并分析叩击频率。</p>
+                        <p className="text-[10px] text-emerald-800 hidden sm:block">用拳头轻轻叩击瓜皮，本设备将自动捕获并分析叩击频率。</p>
                       </div>
-                      
+
                       <button
                         onClick={toggleMicrophone}
-                        className={`px-4 py-2 font-black text-xs border-2 border-emerald-950 rounded-xl transition-all shadow-[2px_2px_0px_0px_#064e3b] ${
+                        className={`px-3 sm:px-4 py-2 font-black text-[11px] sm:text-xs border-2 border-emerald-950 rounded-xl transition-all shadow-[2px_2px_0px_0px_#064e3b] whitespace-nowrap shrink-0 ${
                           isListeningMic
                             ? 'bg-rose-500 text-white animate-pulse'
                             : 'bg-white text-emerald-950 hover:bg-emerald-100'
                         }`}
                       >
-                        {isListeningMic ? `🔴 停止 (${micCountdown}s)` : '🎙️ 开启监听'}
+                        {isListeningMic ? `🔴 停止(${micCountdown}s)` : '🎙️ 开启监听'}
                       </button>
                     </div>
 
                     {/* Ambient / Simulated fallback taps */}
                     <div className="border-t border-dashed border-emerald-900/10 pt-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-black text-emerald-900">🎛️ 听声虚拟叩击器（懒人/电脑测试）</span>
-                        <span className="text-[9px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-extrabold border border-red-200">免麦克风</span>
+                      <div className="flex items-center justify-between mb-2 gap-1">
+                        <span className="text-[11px] sm:text-xs font-black text-emerald-900">🎛️ 虚拟叩击器<span className="hidden sm:inline">（懒人/电脑测试）</span></span>
+                        <span className="text-[9px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-extrabold border border-red-200 whitespace-nowrap shrink-0">免麦克风</span>
                       </div>
-                      <p className="text-[10.5px] text-emerald-800 mb-3">
+                      <p className="text-[10px] text-emerald-800 mb-2 sm:mb-3 hidden sm:block">
                         手边没有真瓜？点下面按钮模拟敲瓜声，一样能听到瓜瓜的声音哦！
                       </p>
                       
@@ -1253,14 +1284,16 @@ export default function App() {
                   </div>
 
                   {/* STEP 2: Camera Appearance */}
-                  <div className="bg-white border-4 border-emerald-950 rounded-3xl p-5 shadow-[4px_4px_0px_0px_#064e3b]">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-base font-extrabold text-emerald-950 flex items-center gap-1.5">
-                        <span className="w-6 h-6 bg-emerald-100 border border-emerald-300 rounded-full flex items-center justify-center text-xs">2</span>
-                        第二步：检测瓜体成色 <span className="text-xs text-gray-400 font-normal">(可选)</span>
+                  <div className="bg-white border-2 sm:border-4 border-emerald-950 rounded-2xl sm:rounded-3xl p-3 sm:p-5 shadow-[2px_2px_0px_0px_rgba(6,78,59,0.5)] sm:shadow-[4px_4px_0px_0px_#064e3b]">
+                    <div className="flex items-center justify-between mb-2 sm:mb-3 gap-2">
+                      <h3 className="text-sm sm:text-base font-extrabold text-emerald-950 flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="w-5 h-5 sm:w-6 sm:h-6 bg-emerald-100 border border-emerald-300 rounded-full flex items-center justify-center text-[10px] sm:text-xs shrink-0">2</span>
+                        <span className="hidden sm:inline">第二步：检测瓜体成色</span>
+                        <span className="sm:hidden">瓜体成色</span>
+                        <span className="text-[10px] sm:text-xs text-gray-400 font-normal">(可选)</span>
                       </h3>
-                      <span className="text-[10px] font-mono font-bold bg-[#EFF6FF] text-blue-800 px-2 py-0.5 rounded border border-blue-200">
-                        📷 视觉采样 
+                      <span className="text-[9px] sm:text-[10px] font-mono font-bold bg-[#EFF6FF] text-blue-800 px-1.5 sm:px-2 py-0.5 rounded border border-blue-200 whitespace-nowrap shrink-0">
+                        📷 视觉采样
                       </span>
                     </div>
 
@@ -1269,30 +1302,30 @@ export default function App() {
                     </p>
 
                     {/* Camera Trigger panel */}
-                    <div className="bg-emerald-50/50 p-3 rounded-2xl border-2 border-emerald-900/10 mb-4 flex items-center justify-between gap-3">
-                      <div className="flex-1">
+                    <div className="bg-emerald-50/50 p-3 rounded-2xl border-2 border-emerald-900/10 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
+                      <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-emerald-950">📷 摄像头实地拍摄</p>
-                        <p className="text-[10px] text-emerald-800">对准买回来的瓜进行拍摄，我们会扫描皮肤色素分布及条纹高低频对比度。</p>
+                        <p className="text-[10px] text-emerald-800 hidden sm:block">对准买回来的瓜进行拍摄，我们会扫描皮肤色素分布及条纹高低频对比度。</p>
                       </div>
-                      
+
                       <button
                         onClick={toggleCamera}
-                        className={`px-4 py-2 font-black text-xs border-2 border-emerald-950 rounded-xl transition-all shadow-[2px_2px_0px_0px_#064e3b] ${
+                        className={`px-3 sm:px-4 py-2 font-black text-[11px] sm:text-xs border-2 border-emerald-950 rounded-xl transition-all shadow-[2px_2px_0px_0px_#064e3b] whitespace-nowrap shrink-0 ${
                           isCameraActive ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-emerald-950 hover:bg-emerald-100'
                         }`}
                       >
-                        {isCameraActive ? `🔴 关掉 (${camCountdown}s)` : '📷 打开小镜头'}
+                        {isCameraActive ? `🔴 关掉(${camCountdown}s)` : '📷 打开小镜头'}
                       </button>
                     </div>
 
                     {/* Pre-designed presets for appearance simulator */}
                     <div className="border-t border-dashed border-emerald-900/10 pt-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-black text-emerald-900">🏞️ 仿真西瓜外观（免相机）</span>
-                        <span className="text-[9px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-extrabold border border-red-200">免镜头</span>
+                      <div className="flex items-center justify-between mb-2 gap-1">
+                        <span className="text-[11px] sm:text-xs font-black text-emerald-900">🏞️ 仿真外观<span className="hidden sm:inline">（免相机）</span></span>
+                        <span className="text-[9px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-extrabold border border-red-200 whitespace-nowrap shrink-0">免镜头</span>
                       </div>
                       
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         <button
                           onClick={() => {
                             setWaterMelonPreset('unripe');
@@ -1305,9 +1338,9 @@ export default function App() {
                               : 'border-transparent bg-[#F8FAFC]'
                           }`}
                         >
-                          <span className="text-xs">🟢 浑圆淡雅青涩</span>
+                          <span className="text-[11px] sm:text-xs whitespace-nowrap">🟢 浑圆青涩</span>
                         </button>
-                        
+
                         <button
                           onClick={() => {
                             setWaterMelonPreset('ripe');
@@ -1320,7 +1353,7 @@ export default function App() {
                               : 'border-transparent bg-[#F8FAFC]'
                           }`}
                         >
-                          <span className="text-xs">🍉 斑纹极清甜熟</span>
+                          <span className="text-[11px] sm:text-xs whitespace-nowrap">🍉 斑纹清甜</span>
                         </button>
 
                         <button
@@ -1335,7 +1368,7 @@ export default function App() {
                               : 'border-transparent bg-[#F8FAFC]'
                           }`}
                         >
-                          <span className="text-xs">🍂 暗淡不匀熟透</span>
+                          <span className="text-[11px] sm:text-xs whitespace-nowrap">🍂 暗淡熟透</span>
                         </button>
                       </div>
                     </div>
