@@ -289,7 +289,11 @@ export default function App() {
         alert(`💫 ${errorMsg} 已经帮你选了一个甜甜的夏日瓜地！`);
         setCustomLocation('📍 新疆哈密·葡萄沙地的甜甜瓜田');
       },
-      { enableHighAccuracy: false, timeout: 6000 }
+      {
+        enableHighAccuracy: false,
+        timeout: 15000,          // iOS GPS 冷启动较慢，给足时间
+        maximumAge: 120000,      // 2 分钟内的缓存位置直接复用，避免每次都等 GPS
+      }
     );
   };
 
