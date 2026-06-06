@@ -141,6 +141,8 @@ export default function App() {
   // 音频诊断：用于移动端排查麦克风问题
   const [micDebugRms, setMicDebugRms] = useState<number>(0);
   const [micDebugCtxState, setMicDebugCtxState] = useState<string>('-');
+  const [micDebugPeak, setMicDebugPeak] = useState<number>(0);
+  const [micDebugThreshold, setMicDebugThreshold] = useState<number>(0);
 
   // Selected testing preset (for testing simulator Fallbacks)
   const [waterMelonPreset, setWaterMelonPreset] = useState<WatermelonStatus>('ripe');
@@ -583,7 +585,8 @@ export default function App() {
           const rms = Math.sqrt(sum / bufferLength);
 
           // Simple dynamic thresholding to detect a quick thump peak
-          const threshold = Math.max(0.04, lastVolumeAvg * 2.8);
+          // iOS 麦克风增益较低，降低最小阈值确保能检测到敲击
+          const threshold = Math.max(0.015, lastVolumeAvg * 2.8);
           if (rms > threshold && tapCooldown <= 0) {
             // TAP DETECTED! Find peak frequency
             const freqData = new Uint8Array(analyserRef.current.frequencyBinCount);
@@ -602,7 +605,11 @@ export default function App() {
             // Convert bin index to actual frequency (Hz)
             const sampleRate = audioCtx.sampleRate;
             let peakFreq = Math.round((peakIndex * sampleRate) / (analyser.fftSize));
-            
+
+            // 实时显示检测到的频率（即使被过滤也显示在诊断中）
+            setMicDebugPeak(peakFreq);
+            setMicDebugThreshold(Math.round(threshold * 1000) / 1000);
+
             // Limit to logical physical watermelon range to filter background noise
             if (peakFreq > 40 && peakFreq < 400) {
               setDetectedFrequency(peakFreq);
@@ -611,7 +618,7 @@ export default function App() {
               let statusMatch: WatermelonStatus = 'ripe';
               if (peakFreq > 180) statusMatch = 'unripe';
               else if (peakFreq < 90) statusMatch = 'overripe';
-              
+
               gameAudio.playWatermelonTap(statusMatch);
               tapCooldown = 15; // Cool down frame cycles (about 300ms)
             }
@@ -669,6 +676,8 @@ export default function App() {
     // 重置诊断信息
     setMicDebugRms(0);
     setMicDebugCtxState('-');
+    setMicDebugPeak(0);
+    setMicDebugThreshold(0);
 
     // Fallback: If user clicked stop listening and no frequency thump was registered yet,
     // we generate a sweet acoustic physical frequency matching their active visual preset.
@@ -1237,13 +1246,13 @@ export default function App() {
                         isListening={isListeningMic}
                         themeColor="#EF5350"
                       />
-                      {/* 移动端诊断信息：显示 AudioContext 状态和实时音量 */}
+                      {/* 移动端诊断信息：显示 AudioContext 状态、实时音量、检测频率 */}
                       {isListeningMic && (
-                        <div className="mt-1 flex items-center gap-2 text-[10px] font-mono text-emerald-700 bg-emerald-50/50 px-2 py-0.5 rounded">
-                          <span>ctx: <b className={micDebugCtxState === 'running' ? 'text-green-600' : 'text-red-500'}>{micDebugCtxState}</b></span>
-                          <span>|</span>
-                          <span>RMS: <b className={micDebugRms > 0.001 ? 'text-green-600' : 'text-amber-500'}>{micDebugRms.toFixed(4)}</b></span>
-                          <span className="text-[9px] text-emerald-600">({micDebugRms > 0.001 ? '✅ 有信号' : '⚠️ 无信号'})</span>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-mono text-emerald-700 bg-emerald-50/50 px-2 py-0.5 rounded">
+                          <span>ctx:<b className={micDebugCtxState === 'running' ? 'text-green-600' : 'text-red-500'}>{micDebugCtxState}</b></span>
+                          <span>RMS:<b className={micDebugRms > 0.001 ? 'text-green-600' : 'text-amber-500'}>{micDebugRms.toFixed(4)}</b></span>
+                          <span>阈值:<b>{micDebugThreshold.toFixed(3)}</b></span>
+                          <span>峰值:<b className={micDebugPeak > 0 ? 'text-rose-600' : 'text-amber-500'}>{micDebugPeak > 0 ? micDebugPeak + 'Hz' : '等待敲击'}</b></span>
                         </div>
                       )}
                     </div>
