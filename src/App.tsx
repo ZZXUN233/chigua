@@ -2183,7 +2183,7 @@ export default function App() {
               )}
 
               {/* 瓜价走势图 */}
-              {marketIndex.priceHistory && marketIndex.priceHistory.length >= 2 && (
+              {marketIndex && marketIndex.priceHistory && marketIndex.priceHistory.length >= 2 && (
                 <div className="mb-6">
                   <PriceChart data={marketIndex.priceHistory} />
                 </div>
