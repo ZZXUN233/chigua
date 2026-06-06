@@ -138,6 +138,9 @@ export default function App() {
   const [detectedContrast, setDetectedContrast] = useState<number>(0);
   const [detectedGreenness, setDetectedGreenness] = useState<number>(0);
   const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string>('');
+  // 音频诊断：用于移动端排查麦克风问题
+  const [micDebugRms, setMicDebugRms] = useState<number>(0);
+  const [micDebugCtxState, setMicDebugCtxState] = useState<string>('-');
 
   // Selected testing preset (for testing simulator Fallbacks)
   const [waterMelonPreset, setWaterMelonPreset] = useState<WatermelonStatus>('ripe');
@@ -502,18 +505,29 @@ export default function App() {
 
         // 2. 检查是否支持麦克风采集
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          // Android 微信 X5 内核 / 旧版浏览器 不支持 getUserMedia
           if (audioCtx.state === 'suspended') {
-            await audioCtx.resume(); // 至少让模拟敲击音效可用
+            await audioCtx.resume();
           }
           throw new Error('当前浏览器不支持麦克风采集（常见于微信内置浏览器），请用系统浏览器打开');
         }
 
-        // 3. 请求麦克风权限
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // 3. 请求麦克风权限（禁用降噪/回声消除以获取原始音频）
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          }
+        });
         micStreamRef.current = stream;
 
-        // 4. 移动端浏览器默认挂起 AudioContext，必须手动 resume
+        // 4. 验证音频轨道是否真正可用
+        const audioTrack = stream.getAudioTracks()[0];
+        if (!audioTrack || audioTrack.readyState !== 'live') {
+          throw new Error('麦克风音频轨道未就绪，请确认已授权麦克风权限');
+        }
+
+        // 5. 移动端浏览器默认挂起 AudioContext，必须手动 resume
         if (audioCtx.state === 'suspended') {
           await audioCtx.resume();
         }
@@ -521,16 +535,31 @@ export default function App() {
           throw new Error(`AudioContext 无法启动 (state: ${audioCtx.state})，请尝试刷新页面后重试`);
         }
 
-        // 5. 连接音频处理管线
+        // 6. 连接音频处理管线
         const source = audioCtx.createMediaStreamSource(stream);
         const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 2048;  // 提升频率分辨率：每 bin 约 21Hz (44.1k sampleRate)
+        analyser.fftSize = 2048;
         source.connect(analyser);
         analyserRef.current = analyser;
 
+        // 7. 【关键】连接一个静音输出到 destination，防止 iOS 自动挂起 AudioContext
+        //    iOS Safari/WKWebView 在没有音频输出时会主动暂停 AudioContext 以省电
+        const silentGain = audioCtx.createGain();
+        silentGain.gain.value = 0; // 完全静音，用户听不到
+        source.connect(silentGain);
+        silentGain.connect(audioCtx.destination);
+
+        // 8. 监听 AudioContext 状态变化，iOS 可能随时挂起再恢复
+        audioCtx.onstatechange = () => {
+          if (audioCtx.state === 'suspended' && analyserRef.current) {
+            // iOS 可能在屏幕锁定等场景下挂起，尝试恢复
+            audioCtx.resume().catch(() => {});
+          }
+        };
+
         setIsListeningMic(true);
         setUseRealMic(true);
-        setMicCountdown(5);  // 5 秒后自动停止
+        setMicCountdown(5);
         hasCapturedRef.current = false;
         gameAudio.playPop();
 
@@ -592,6 +621,12 @@ export default function App() {
           lastVolumeAvg = lastVolumeAvg * 0.95 + rms * 0.05;
           if (tapCooldown > 0) tapCooldown--;
 
+          // 每 10 帧更新一次诊断信息（避免过于频繁的 React 重渲染）
+          if (Math.random() < 0.1) {
+            setMicDebugRms(Math.round(rms * 1000) / 1000);
+            setMicDebugCtxState(audioCtx.state);
+          }
+
           // Fix React state package closure bug by checking analyserRef.current instead of isListeningMic
           if (analyserRef.current) {
             listenIntervalRef.current = requestAnimationFrame(checkTap);
@@ -626,10 +661,14 @@ export default function App() {
       micStreamRef.current = null;
     }
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.onstatechange = null; // 清理监听器
       audioContextRef.current.close();
     }
     setIsListeningMic(false);
     analyserRef.current = null;
+    // 重置诊断信息
+    setMicDebugRms(0);
+    setMicDebugCtxState('-');
 
     // Fallback: If user clicked stop listening and no frequency thump was registered yet,
     // we generate a sweet acoustic physical frequency matching their active visual preset.
@@ -1198,6 +1237,15 @@ export default function App() {
                         isListening={isListeningMic}
                         themeColor="#EF5350"
                       />
+                      {/* 移动端诊断信息：显示 AudioContext 状态和实时音量 */}
+                      {isListeningMic && (
+                        <div className="mt-1 flex items-center gap-2 text-[10px] font-mono text-emerald-700 bg-emerald-50/50 px-2 py-0.5 rounded">
+                          <span>ctx: <b className={micDebugCtxState === 'running' ? 'text-green-600' : 'text-red-500'}>{micDebugCtxState}</b></span>
+                          <span>|</span>
+                          <span>RMS: <b className={micDebugRms > 0.001 ? 'text-green-600' : 'text-amber-500'}>{micDebugRms.toFixed(4)}</b></span>
+                          <span className="text-[9px] text-emerald-600">({micDebugRms > 0.001 ? '✅ 有信号' : '⚠️ 无信号'})</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Mic Trigger */}
