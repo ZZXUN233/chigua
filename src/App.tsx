@@ -109,6 +109,8 @@ export default function App() {
   // --- States ---
   const [records, setRecords] = useState<WatermelonRecord[]>([]);
   const [activeSegment, setActiveSegment] = useState<'scan' | 'community'>('scan');
+  // 通过 ?post=id 分享链接定位到指定瓜贴
+  const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
 
   // Scanning Sub-States
   const [useRealMic, setUseRealMic] = useState<boolean>(false);
@@ -423,6 +425,14 @@ export default function App() {
       // Also try to sync from server
       syncFromServer();
     }, msUntilNext1AM);
+
+    // 检查 URL 参数 ?post=id，定位到分享的瓜贴
+    const urlParams = new URLSearchParams(window.location.search);
+    const postId = urlParams.get('post');
+    if (postId) {
+      setHighlightPostId(postId);
+      setActiveSegment('community');
+    }
 
     return () => clearTimeout(resetTimer);
   }, []);
@@ -1008,6 +1018,27 @@ export default function App() {
     fetch(`/chigua-api/records/${id}/dispute-price`, { method: 'POST' })
       .catch(err => console.warn('[Dispute] 同步失败:', err));
     fetchMarketIndex();
+  };
+
+  // --- Share a Watermelon post ---
+  const handleShareRecord = async (id: string, name: string) => {
+    const shareUrl = `${window.location.origin}/chigua/?post=${id}`;
+    const shareText = `🍉 ${name}\n${shareUrl}`;
+    try {
+      await navigator.clipboard.writeText(shareText);
+      alert('🔗 已复制瓜贴链接！\n\n直接粘贴发给朋友，\n对方打开就能看到这个瓜啦～🍉');
+    } catch {
+      // 降级方案：用 execCommand
+      const ta = document.createElement('textarea');
+      ta.value = shareText;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      alert('🔗 已复制瓜贴链接！\n\n直接粘贴发给朋友，\n对方打开就能看到这个瓜啦～🍉');
+    }
   };
 
   // --- Like a Watermelon post inside SquareFeed ---
@@ -2159,7 +2190,15 @@ export default function App() {
               )}
 
               {/* Feed List rendered natively */}
-              <SquareFeed records={records} onLike={handleLikeRecord} onWhatsUp={handleWhatsUp} onDisputePrice={handleDisputePrice} localCity={purchaseLocation || extractCityFromLocation(customLocation) || undefined} />
+              <SquareFeed
+                records={records}
+                onLike={handleLikeRecord}
+                onWhatsUp={handleWhatsUp}
+                onDisputePrice={handleDisputePrice}
+                onShare={handleShareRecord}
+                highlightPostId={highlightPostId}
+                localCity={purchaseLocation || extractCityFromLocation(customLocation) || undefined}
+              />
             </motion.div>
           )}
         </AnimatePresence>

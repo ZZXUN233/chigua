@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { WatermelonRecord } from '../types';
-import { ThumbsUp, Calendar, Trophy, Sparkles, MessageSquare, Star, MapPin } from 'lucide-react';
+import { ThumbsUp, Calendar, Trophy, Sparkles, MessageSquare, Star, MapPin, Share2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface SquareFeedProps {
@@ -8,12 +8,25 @@ interface SquareFeedProps {
   onLike: (id: string) => void;
   onWhatsUp: (id: string) => void;
   onDisputePrice: (id: string) => void;
+  onShare: (id: string, name: string) => void;
+  highlightPostId?: string | null;
   localCity?: string;
 }
 
-export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhatsUp, onDisputePrice, localCity }) => {
+export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhatsUp, onDisputePrice, onShare, highlightPostId, localCity }) => {
   const [activeTab, setActiveTab] = useState<'all' | 'leaderboard' | 'local'>('all');
+  const highlightRef = useRef<HTMLDivElement | null>(null);
   const [showSecurityLab, setShowSecurityLab] = useState<boolean>(false);
+
+  // 通过分享链接进入时，自动滚动到指定瓜贴并高亮
+  useEffect(() => {
+    if (highlightPostId && highlightRef.current) {
+      // 延迟一下等 DOM 渲染完成
+      setTimeout(() => {
+        highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 400);
+    }
+  }, [highlightPostId, records]);
 
   const localRecords = React.useMemo(() => {
     if (!localCity) return [];
@@ -161,7 +174,12 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhats
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
               key={item.id}
-              className="relative bg-white border-2 sm:border-4 border-emerald-950 rounded-2xl sm:rounded-3xl p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.01] transition-transform duration-200 shadow-[2px_2px_0px_0px_rgba(6,78,59,0.5)] sm:shadow-[4px_4px_0px_0px_#064e3b]"
+              ref={item.id === highlightPostId ? highlightRef : undefined}
+              className={`relative bg-white border-2 sm:border-4 border-emerald-950 rounded-2xl sm:rounded-3xl p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.01] transition-all duration-200 shadow-[2px_2px_0px_0px_rgba(6,78,59,0.5)] sm:shadow-[4px_4px_0px_0px_#064e3b] ${
+                item.id === highlightPostId
+                  ? 'ring-4 ring-amber-400 ring-offset-2 animate-pulse'
+                  : ''
+              }`}
             >
               {/* Leaderboard Rank Badge */}
               {activeTab === 'leaderboard' && (
@@ -276,6 +294,13 @@ export const SquareFeed: React.FC<SquareFeedProps> = ({ records, onLike, onWhats
                     className="flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 border-2 border-amber-400 text-amber-700 font-extrabold text-[10px] rounded-xl transition-all active:scale-95 shadow-[1px_1px_0px_0px_#d97706]"
                   >
                     🤨 {item.whatsUp || 0}
+                  </button>
+                  <button
+                    onClick={() => onShare(item.id, item.name)}
+                    className="flex items-center gap-1 px-2 py-1 bg-sky-50 hover:bg-sky-100 border-2 border-sky-400 text-sky-700 font-extrabold text-[10px] rounded-xl transition-all active:scale-95 shadow-[1px_1px_0px_0px_#0284c7]"
+                    title="分享这个瓜贴"
+                  >
+                    <Share2 size={11} /> 分享
                   </button>
                   <button
                     onClick={() => onLike(item.id)}
