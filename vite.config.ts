@@ -16,7 +16,8 @@ export default defineConfig(() => {
       // Proxy /chigua-api requests to Express backend for dev mode
       proxy: {
         '/chigua-api': {
-          target: 'http://localhost:3000',
+          // Express 后端在 dev 模式下跑在 3001 端口，避免和 Vite 的 3000 冲突
+          target: 'http://localhost:3001',
           changeOrigin: true,
         },
       },
