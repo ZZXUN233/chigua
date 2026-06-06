@@ -245,34 +245,54 @@ export default function App() {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
-        // Reverse geocode to city name (free OSM Nominatim, no API key needed)
+        let gotCity = false;
+
+        // 方案 A：Nominatim 反向地理编码（免费，但国内可能被墙）
         try {
           const geoRes = await fetch(
             `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&accept-language=zh`,
-            { signal: AbortSignal.timeout(4000) }
+            { signal: AbortSignal.timeout(5000) }
           );
           if (geoRes.ok) {
             const geoData = await geoRes.json();
             const city = geoData.address?.city || geoData.address?.town || geoData.address?.county || geoData.address?.state || '';
             const province = geoData.address?.state || geoData.address?.province || '';
             const cityName = city || province || '';
-            const locationName = city
-              ? `📍 ${province ? province.replace(/省|市$/, '') + '·' : ''}${city}的甜甜瓜田`
-              : `📍 北纬${latitude.toFixed(1)}°附近的秘密瓜地`;
-            setCustomLocation(locationName);
-            // 华强买瓜：自动填入城市作为购买地
-            if (cityName && !purchaseLocation) {
-              setPurchaseLocation(cityName);
+            if (cityName) {
+              const locationName = `📍 ${province ? province.replace(/省|市$/, '') + '·' : ''}${city}的甜甜瓜田`;
+              setCustomLocation(locationName);
+              if (!purchaseLocation) setPurchaseLocation(cityName);
+              gotCity = true;
             }
-            setIsFetchingLocation(false);
-            return;
           }
-        } catch (geoErr) {
-          console.warn('[Geo] 反向地理编码失败，使用模糊坐标:', geoErr);
+        } catch {
+          console.warn('[Geo] Nominatim 不可用（国内可能被墙），尝试 IP 定位...');
         }
-        // Fallback: fuzzy coordinates
-        const fuzzyLocStr = `📍 北纬${latitude.toFixed(1)}°附近的秘密瓜地`;
-        setCustomLocation(fuzzyLocStr);
+
+        // 方案 B：IP 定位兜底（api.ip.sb 国内可通，无需 API Key）
+        if (!gotCity) {
+          try {
+            const ipRes = await fetch('https://api.ip.sb/geoip/', { signal: AbortSignal.timeout(5000) });
+            if (ipRes.ok) {
+              const ipData = await ipRes.json();
+              const city = ipData.city || ipData.region || '';
+              const country = ipData.country || '';
+              if (city) {
+                const locationName = `📍 ${country === 'China' ? '' : country + '·'}${city}的甜甜瓜田`;
+                setCustomLocation(locationName);
+                if (!purchaseLocation) setPurchaseLocation(city);
+                gotCity = true;
+              }
+            }
+          } catch {
+            console.warn('[Geo] IP 定位也失败了');
+          }
+        }
+
+        // 方案 C：都没拿到，展示模糊坐标
+        if (!gotCity) {
+          setCustomLocation(`📍 北纬${latitude.toFixed(1)}°附近的秘密瓜地`);
+        }
         setIsFetchingLocation(false);
       },
       (error) => {
